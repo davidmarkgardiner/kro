@@ -1,0 +1,185 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: whiskyapp-prod
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: WhiskyAppProd
+    spec:
+      name: string | required=true description="Name of the whisky app"
+      image: string | required=true description="Container image to use"
+      replicas: integer | default=3 description="Number of replicas"
+      resources:
+        requests:
+          cpu: string | default="100m" description="CPU request"
+          memory: string | default="128Mi" description="Memory request"
+        limits:
+          cpu: string | default="500m" description="CPU limit"
+          memory: string | default="512Mi" description="Memory limit"
+      istio:
+        enabled: boolean | default=true description="Enable Istio integration"
+        host: string | default="whiskyapp.local" description="Hostname for Istio VirtualService"
+        path: string | default="/" description="Path for Istio VirtualService"
+
+    status:
+      ready: ${deployment.metadata.name != ""}
+      serviceEndpoint: ${service.spec.clusterIP}
+
+  resources:
+    - id: serviceaccount
+      template:
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: ${schema.spec.name}
+          annotations:
+            eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT:role/whiskyapp-role"
+
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${schema.spec.name}
+          annotations:
+            seccomp.security.alpha.kubernetes.io/pod: "runtime/default"
+        spec:
+          replicas: ${schema.spec.replicas}
+          selector:
+            matchLabels:
+              app: ${schema.spec.name}
+          template:
+            metadata:
+              labels:
+                app: ${schema.spec.name}
+            spec:
+              serviceAccountName: ${schema.spec.name}
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 101
+                runAsGroup: 101
+                fsGroup: 101
+                seccompProfile:
+                  type: RuntimeDefault
+              initContainers:
+                - name: init-nginx-config
+                  image: busybox:1.36.1
+                  command: ['sh', '-c', 'echo "server { listen 80; location / { root /usr/share/nginx/html; index index.html; } }" > /etc/nginx/conf.d/default.conf']
+                  volumeMounts:
+                    - name: nginx-conf
+                      mountPath: /etc/nginx/conf.d
+              containers:
+                - name: ${schema.spec.name}
+                  image: ${schema.spec.image}
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    capabilities:
+                      drop: ["ALL"]
+                    readOnlyRootFilesystem: true
+                  resources:
+                    requests:
+                      cpu: ${schema.spec.resources.requests.cpu}
+                      memory: ${schema.spec.resources.requests.memory}
+                    limits:
+                      cpu: ${schema.spec.resources.limits.cpu}
+                      memory: ${schema.spec.resources.limits.memory}
+                  ports:
+                    - containerPort: 80
+                  readinessProbe:
+                    httpGet:
+                      path: /
+                      port: 80
+                    initialDelaySeconds: 5
+                    periodSeconds: 10
+                  livenessProbe:
+                    httpGet:
+                      path: /
+                      port: 80
+                    initialDelaySeconds: 15
+                    periodSeconds: 20
+                  volumeMounts:
+                    - name: nginx-cache
+                      mountPath: /var/cache/nginx
+                    - name: nginx-run
+                      mountPath: /var/run
+                    - name: nginx-conf
+                      mountPath: /etc/nginx/conf.d
+              volumes:
+                - name: nginx-cache
+                  emptyDir: {}
+                - name: nginx-run
+                  emptyDir: {}
+                - name: nginx-conf
+                  emptyDir: {}
+
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          selector:
+            app: ${schema.spec.name}
+          ports:
+            - port: 80
+              targetPort: 80
+          type: ClusterIP
+
+    - id: networkpolicy
+      template:
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          podSelector:
+            matchLabels:
+              app: ${schema.spec.name}
+          policyTypes:
+            - Ingress
+            - Egress
+          ingress:
+            - from:
+                - podSelector:
+                    matchLabels:
+                      istio: ingressgateway
+              ports:
+                - protocol: TCP
+                  port: 80
+          egress:
+            - to:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: kube-system
+                - podSelector:
+                    matchLabels:
+                      k8s-app: kube-dns
+              ports:
+                - protocol: UDP
+                  port: 53
+                - protocol: TCP
+                  port: 53
+
+    - id: virtualservice
+      template:
+        apiVersion: networking.istio.io/v1alpha3
+        kind: VirtualService
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          hosts:
+            - ${schema.spec.istio.host}
+          gateways:
+            - istio-gateway
+          http:
+            - match:
+                - uri:
+                    prefix: ${schema.spec.istio.path}
+              route:
+                - destination:
+                    host: ${schema.spec.name}
+                    port:
+                      number: 80 

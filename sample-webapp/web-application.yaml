@@ -1,0 +1,74 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: web-application
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: WebApplication
+    spec:
+      # Basic configuration
+      name: string | required=true description="Application name"
+      image: string | required=true description="Container image to deploy"
+      replicas: integer | default=1 description="Number of replicas"
+      
+      # Service configuration
+      port: integer | default=80 description="Container port"
+      
+      # Resource limits
+      resources:
+        requests:
+          cpu: string | default="100m"
+          memory: string | default="128Mi"
+        limits:
+          cpu: string | default="200m"
+          memory: string | default="256Mi"
+
+    status:
+      availableReplicas: ${deployment.status.availableReplicas}
+      serviceEndpoint: ${service.spec.clusterIP}
+
+  resources:
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${this.spec.name}
+        spec:
+          replicas: ${this.spec.replicas}
+          selector:
+            matchLabels:
+              app: ${this.spec.name}
+          template:
+            metadata:
+              labels:
+                app: ${this.spec.name}
+            spec:
+              containers:
+                - name: ${this.spec.name}
+                  image: ${this.spec.image}
+                  ports:
+                    - containerPort: ${this.spec.port}
+                  resources:
+                    requests:
+                      cpu: ${this.spec.resources.requests.cpu}
+                      memory: ${this.spec.resources.requests.memory}
+                    limits:
+                      cpu: ${this.spec.resources.limits.cpu}
+                      memory: ${this.spec.resources.limits.memory}
+
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${this.spec.name}
+        spec:
+          selector:
+            app: ${this.spec.name}
+          ports:
+            - port: ${this.spec.port}
+              targetPort: ${this.spec.port}
+          type: ClusterIP 

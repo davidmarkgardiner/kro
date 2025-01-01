@@ -1,0 +1,118 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: webapp.kro.run
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: WebApplication
+    spec:
+      name: string | required=true
+      image: string | required=true
+      port: integer | default=80
+      replicas: integer | default=1
+      service:
+        enabled: boolean | default=true
+        type: string | default="ClusterIP"
+      ingress:
+        enabled: boolean | default=false
+        host: string | default="example.com"
+        path: string | default="/"
+      resources:
+        requests:
+          cpu: string | default="25m"
+          memory: string | default="32Mi"
+        limits:
+          cpu: string | default="50m"
+          memory: string | default="64Mi"
+    status:
+      deploymentConditions: ${deployment.status.conditions}
+      availableReplicas: ${deployment.status.availableReplicas}
+      url: ${ingress.status.loadBalancer.ingress[0].hostname}
+
+  resources:
+  - id: deployment
+    readyWhen:
+      - ${has(deployment.status, 'availableReplicas') && deployment.status.availableReplicas == schema.spec.replicas}
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${schema.spec.name}
+        namespace: kro
+        labels:
+          app.kubernetes.io/name: ${schema.spec.name}
+      spec:
+        replicas: ${schema.spec.replicas}
+        selector:
+          matchLabels:
+            app: ${schema.spec.name}
+            app.kubernetes.io/name: ${schema.spec.name}
+        template:
+          metadata:
+            labels:
+              app: ${schema.spec.name}
+              app.kubernetes.io/name: ${schema.spec.name}
+          spec:
+            containers:
+            - name: app
+              image: ${schema.spec.image}
+              imagePullPolicy: Always
+              ports:
+              - containerPort: ${schema.spec.port}
+              resources:
+                requests:
+                  cpu: ${schema.spec.resources.requests.cpu}
+                  memory: ${schema.spec.resources.requests.memory}
+                limits:
+                  cpu: ${schema.spec.resources.limits.cpu}
+                  memory: ${schema.spec.resources.limits.memory}
+            restartPolicy: Always
+
+  - id: service
+    includeWhen:
+      - ${schema.spec.service.enabled}  
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${deployment.metadata.name}
+        namespace: kro
+      spec:
+        type: ${schema.spec.service.type}
+        selector:
+          app: ${schema.spec.name}
+        ports:
+        - name: http
+          protocol: TCP
+          port: 80
+          targetPort: ${schema.spec.port}
+
+  - id: ingress
+    includeWhen:
+      - ${schema.spec.ingress.enabled}  
+    template:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: ${deployment.metadata.name}
+        namespace: kro
+        annotations:
+          kubernetes.io/ingress.class: alb
+          alb.ingress.kubernetes.io/scheme: internet-facing
+          alb.ingress.kubernetes.io/target-type: ip
+          alb.ingress.kubernetes.io/healthcheck-path: /health
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+          alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=60
+      spec:
+        rules:
+        - host: ${schema.spec.ingress.host}
+          http:
+            paths:
+            - path: ${schema.spec.ingress.path}
+              pathType: Prefix
+              backend:
+                service:
+                  name: ${service.metadata.name}
+                  port:
+                    number: 80

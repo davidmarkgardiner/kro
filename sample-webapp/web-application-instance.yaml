@@ -1,0 +1,9 @@
+apiVersion: v1alpha1
+kind: WebApplication
+metadata:
+  name: nginx-app
+spec:
+  name: nginx-app
+  image: nginx:latest
+  replicas: 2
+  port: 80 

@@ -1,0 +1,18 @@
+apiVersion: v1alpha1
+kind: RenovateJob
+metadata:
+  name: renovate-job
+spec:
+  name: renovate
+  namespace: controllers
+  gitea:
+    repository: "davidgardiner/argocd"
+  # Optional: Override default resource values
+  resources:
+    requests:
+      cpu: "200m"      # Requesting 0.2 cores
+      memory: "256Mi"  # Requesting 256 MiB memory
+    limits:
+      cpu: "1000m"     # Limited to 1 core
+      memory: "1Gi"    # Limited to 1 GiB memory
+  # All other values will use defaults defined in the ResourceGroup 

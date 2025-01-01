@@ -1,0 +1,22 @@
+apiVersion: kro.run/v1alpha1
+kind: WebApplication
+metadata:
+    name: my-web-app
+spec:
+    name: my-web-app
+    image: nginx:1.25.3
+    replicas: 1
+    port: 80
+    resources:
+        requests:
+            cpu: "50m"
+            memory: "64Mi"
+        limits:
+            cpu: "100m"
+            memory: "128Mi"
+    service:
+        type: ClusterIP
+    ingress:
+        enabled: true
+        host: example.com
+        path: / 

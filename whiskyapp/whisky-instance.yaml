@@ -1,0 +1,13 @@
+apiVersion: kro.run/v1alpha1
+kind: WhiskyApp
+metadata:
+  name: whiskyapp-demo
+  namespace: kro
+spec:
+  name: whiskyapp
+  image: nginx:latest
+  replicas: 2
+  istio:
+    enabled: true
+    host: whiskyapp.local
+    path: / 

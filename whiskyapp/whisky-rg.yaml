@@ -1,0 +1,79 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: whiskyapp
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: WhiskyApp
+    spec:
+      name: string | required=true description="Name of the whisky app"
+      image: string | required=true description="Container image to use"
+      replicas: integer | default=2 description="Number of replicas"
+      istio:
+        enabled: boolean | default=true description="Enable Istio integration"
+        host: string | default="whiskyapp.local" description="Hostname for Istio VirtualService"
+        path: string | default="/" description="Path for Istio VirtualService"
+
+    status:
+      availableReplicas: ${deployment.status.availableReplicas}
+      serviceEndpoint: ${service.spec.clusterIP}
+
+  resources:
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          replicas: ${schema.spec.replicas}
+          selector:
+            matchLabels:
+              app: ${schema.spec.name}
+          template:
+            metadata:
+              labels:
+                app: ${schema.spec.name}
+            spec:
+              containers:
+                - name: ${schema.spec.name}
+                  image: ${schema.spec.image}
+                  ports:
+                    - containerPort: 80
+
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          selector:
+            app: ${schema.spec.name}
+          ports:
+            - port: 80
+              targetPort: 80
+          type: ClusterIP
+
+    - id: virtualservice
+      template:
+        apiVersion: networking.istio.io/v1alpha3
+        kind: VirtualService
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          hosts:
+            - ${schema.spec.istio.host}
+          gateways:
+            - istio-gateway
+          http:
+            - match:
+                - uri:
+                    prefix: ${schema.spec.istio.path}
+              route:
+                - destination:
+                    host: ${schema.spec.name}
+                    port:
+                      number: 80

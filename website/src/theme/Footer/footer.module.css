@@ -1,0 +1,18 @@
+.kroFooter {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--main-color);
+  color: white;
+}
+
+[data-theme='dark'] .kroFooter {
+  background-color: var(--main-color-dark);
+}
+
+.kroFooterText {
+  padding: 2.5px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin: auto;
+}

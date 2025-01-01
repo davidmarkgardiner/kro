@@ -1,0 +1,63 @@
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/*
+Dockerfile.cross
+
+# Kubernetes Generated files
+!vendor/**/zz_generated.*
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build and binary files
+kro-controller
+kro-chart*
+kro-*
+cover.html
+
+# System files
+.DS_Store
+.read
+.snapshots
+.alpackages
+.design
+TODO.*
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*.csr
+*.env
+.env*
+*.secret
+secrets/
+credentials/
+*_rsa
+*_dsa
+*_ed25519
+*_ecdsa
+kubeconfig
+.kube/
+
+# Package managers
+vendor/
+node_modules/
+package-lock.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.log 

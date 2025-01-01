@@ -1,0 +1,84 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: renovate
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: RenovateJob
+    spec:
+      # Basic configuration
+      name: string | required=true
+      namespace: string | default="controllers"
+      image: string | default="renovate/renovate:37.0.0"
+      logLevel: string | default="debug"
+      
+      # Resource configuration
+      resources:
+        requests:
+          cpu: string | default="200m"
+          memory: string | default="256Mi"
+        limits:
+          cpu: string | default="1000m"
+          memory: string | default="1Gi"
+      
+      # Gitea configuration
+      gitea:
+        endpoint: string | default="https://gitea.com/api/v1/"
+        repository: string | required=true
+        tokenSecretName: string | default="renovate-secrets"
+        tokenSecretKey: string | default="RENOVATE_TOKEN"
+      
+      # Git author configuration
+      gitAuthor:
+        name: string | default="Renovate Bot"
+        email: string | default="bot@renovateapp.com"
+
+    status:
+      jobStatus: ${job.status}
+      podStatus: ${pod.status.phase}
+
+  resources:
+    - id: job
+      template:
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+        spec:
+          template:
+            spec:
+              containers:
+              - name: renovate
+                image: ${schema.spec.image}
+                resources:
+                  requests:
+                    cpu: ${schema.spec.resources.requests.cpu}
+                    memory: ${schema.spec.resources.requests.memory}
+                  limits:
+                    cpu: ${schema.spec.resources.limits.cpu}
+                    memory: ${schema.spec.resources.limits.memory}
+                env:
+                - name: LOG_LEVEL
+                  value: ${schema.spec.logLevel}
+                - name: RENOVATE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${schema.spec.gitea.tokenSecretName}
+                      key: ${schema.spec.gitea.tokenSecretKey}
+                - name: RENOVATE_PLATFORM
+                  value: "gitea"
+                - name: RENOVATE_ENDPOINT
+                  value: ${schema.spec.gitea.endpoint}
+                - name: RENOVATE_REPOSITORIES
+                  value: ${schema.spec.gitea.repository}
+                - name: RENOVATE_GIT_AUTHOR
+                  value: "${schema.spec.gitAuthor.name} <${schema.spec.gitAuthor.email}>"
+                volumeMounts:
+                - name: tmp-volume
+                  mountPath: /tmp/renovate
+              volumes:
+              - name: tmp-volume
+                emptyDir: {}
+              restartPolicy: Never 

@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: renovate
+  namespace: controllers
+spec:
+  template:
+    spec:
+      containers:
+      - name: renovate
+        image: renovate/renovate:37.0.0
+        env:
+        - name: LOG_LEVEL
+          value: "debug"
+        - name: RENOVATE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: renovate-secrets
+              key: RENOVATE_TOKEN
+        - name: RENOVATE_PLATFORM
+          value: "gitea"
+        - name: RENOVATE_ENDPOINT
+          value: "https://gitea.com/api/v1/"
+        - name: RENOVATE_REPOSITORIES
+          value: "davidgardiner/argocd"
+        - name: RENOVATE_GIT_AUTHOR
+          value: "Renovate Bot <bot@renovateapp.com>"
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp/renovate
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      restartPolicy: Never 
