@@ -1,0 +1,190 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: whiskapp-new
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: WhiskAppNew
+    spec:
+      name: string | required=true description="Name of the whisky app"
+      namespace: string | required=true description="Namespace for deployment"
+      image: string | required=true description="Container image to use"
+      replicas: integer | default=1 description="Number of replicas"
+      resources:
+        requests:
+          cpu: string | default="100m" description="CPU request"
+          memory: string | default="256Mi" description="Memory request"
+        limits:
+          cpu: string | default="1000m" description="CPU limit"
+          memory: string | default="256Mi" description="Memory limit"
+      istio:
+        enabled: boolean | default=true description="Enable Istio integration"
+        host: string | required=true description="Hostname for Istio VirtualService"
+        gateway: string | default="aks-istio-ingress/gateway-wildcard" description="Istio gateway"
+
+    status:
+      ready: ${deployment.metadata.name != ""}
+      serviceEndpoint: ${service.spec.clusterIP}
+
+  resources:
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+          labels:
+            app.kubernetes.io/name: ${schema.spec.name}
+            app: ${schema.spec.name}
+        spec:
+          replicas: ${schema.spec.replicas}
+          minReadySeconds: 5
+          revisionHistoryLimit: 5
+          progressDeadlineSeconds: 60
+          strategy:
+            rollingUpdate:
+              maxUnavailable: 1
+            type: RollingUpdate
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: ${schema.spec.name}
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: ${schema.spec.name}
+            spec:
+              tolerations:
+                - key: "CriticalAddonsOnly"
+                  operator: "Exists"
+                  effect: "NoSchedule"
+                - key: "kubernetes.azure.com/scalesetpriority"
+                  operator: "Equal"
+                  value: "spot"
+                  effect: "NoSchedule"
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: "kubernetes.azure.com/scalesetpriority"
+                            operator: In
+                            values:
+                              - "spot"
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 1
+                      preference:
+                        matchExpressions:
+                          - key: worker
+                            operator: In
+                            values:
+                              - "true"
+                podAntiAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      podAffinityTerm:
+                        labelSelector:
+                          matchExpressions:
+                            - key: CriticalAddonsOnly
+                              operator: In
+                              values:
+                                - "true"
+                        topologyKey: kubernetes.io/hostname
+              containers:
+                - name: ${schema.spec.name}
+                  image: ${schema.spec.image}
+                  imagePullPolicy: IfNotPresent
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    capabilities:
+                      drop:
+                        - "ALL"
+                    runAsNonRoot: true
+                    readOnlyRootFilesystem: true
+                    runAsUser: 1001
+                    seccompProfile:
+                      type: RuntimeDefault
+                  ports:
+                    - name: http
+                      containerPort: 8000
+                      protocol: TCP
+                  lifecycle:
+                    preStop:
+                      exec:
+                        command:
+                          - /bin/sh
+                          - -c
+                          - "sleep 10 && nginx -s quit"
+                  livenessProbe:
+                    httpGet:
+                      path: /
+                      port: 8000
+                    initialDelaySeconds: 15
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: /
+                      port: 8000
+                    initialDelaySeconds: 5
+                    periodSeconds: 10
+                  resources:
+                    requests:
+                      cpu: ${schema.spec.resources.requests.cpu}
+                      memory: ${schema.spec.resources.requests.memory}
+                    limits:
+                      cpu: ${schema.spec.resources.limits.cpu}
+                      memory: ${schema.spec.resources.limits.memory}
+              imagePullSecrets:
+                - name: my-registry-secret
+
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+        spec:
+          ports:
+            - name: http
+              port: 80
+              protocol: TCP
+              targetPort: 8000
+          selector:
+            app.kubernetes.io/name: ${schema.spec.name}
+          sessionAffinity: None
+          type: ClusterIP
+
+    - id: virtualservice
+      template:
+        apiVersion: networking.istio.io/v1alpha3
+        kind: VirtualService
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+        spec:
+          hosts:
+            - ${schema.spec.istio.host}
+          gateways:
+            - ${schema.spec.istio.gateway}
+          http:
+            - route:
+                - destination:
+                    host: ${schema.spec.name}
+                    port:
+                      number: 80
+
+    - id: peerauthentication
+      template:
+        apiVersion: security.istio.io/v1beta1
+        kind: PeerAuthentication
+        metadata:
+          name: ${schema.spec.name}-mtls-policy
+          namespace: ${schema.spec.namespace}
+          labels:
+            component: mesh
+        spec:
+          mtls:
+            mode: STRICT 
