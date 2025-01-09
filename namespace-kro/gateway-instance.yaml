@@ -1,0 +1,14 @@
+apiVersion: kro.run/v1alpha1
+kind: Gateway
+metadata:
+  name: gateway
+  namespace: kro
+spec:
+  swci: "example"
+  openvironment: "dev"
+  suffix: "test"
+  namespacename: "example-dev-test"
+  fulldomainname: "example.dev.test.domain.com"
+  resourcequotacpu: "1"
+  resourcequotamemorygb: "1"
+  resourcequotastoragegb: "10Gi" 

@@ -16,6 +16,4 @@ spec:
       cpu: "1000m"
       memory: "256Mi"
   istio:
-    enabled: true
-    host: test.new # Add your host here
-    gateway: aks-istio-ingress/gateway-wildcard 
+    enabled: false 

@@ -1,0 +1,233 @@
+---
+
+apiVersion: v1
+
+kind: Namespace
+
+metadata:
+
+  name: ${swci}-${openvironment}-${suffix}
+
+ 
+
+---
+
+apiVersion: networking.k8s.io/v1
+
+kind: NetworkPolicy
+
+metadata:
+
+  name: allow-${swci}
+
+  namespace: ${swci}-${openvironment}-${suffix}
+
+spec:
+
+  podSelector: {}
+
+  policyTypes:
+
+  - Ingress
+
+  ingress:
+
+  - from:
+
+    - namespaceSelector:
+
+        matchLabels:
+
+          namespace: ${swci}
+
+    # - namespaceSelector:
+
+    #     matchLabels:
+
+    #       kubernetes.io/metadata.name: ingress-nginx # nginx ns label
+
+    - namespaceSelector:
+
+        matchLabels:
+
+          kubernetes.io/metadata.name: aks-istio-ingress # istio ns label
+
+    - namespaceSelector:
+
+        matchLabels:
+
+          kubernetes.azure.com/managedby: aks #  managedby: aks for future ingress i.e app routing
+
+---
+
+# this is to be revamped params will be given at onbaording stage via json data
+
+apiVersion: v1
+
+kind: ResourceQuota
+
+metadata:
+
+  name: resource-qouta
+
+  namespace: ${swci}-${openvironment}-${suffix}
+
+spec:
+
+  hard:
+
+    # This is the amount of a specific resource that the system will guarantee to the container. For example, if you set a memory request of 256Mi for a container, Kubernetes will ensure that the container always has 256Mi of memory available.
+
+    requests.cpu: "${resourcequotacpu}" # 1 CPU
+
+    requests.memory: "${resourcequotamemorygb}Gi" # 1 GiB of memory
+
+    # This is the maximum amount of a specific resource that a container is allowed to exceed. For example, if you set a memory limit of 512Mi for a container, the container is allowed to use more than its requested 256Mi of memory but is not allowed to use more than 512Mi.
+
+    # limits.cpu: ${resourceQuotaCPU} # 2 CPUs
+
+    # limits.memory: ${resourceQuotaMemoryGB} # 2 GiB of memory
+
+    # Across all persistent volume claims, the sum of storage requests cannot exceed this value.
+
+    requests.storage: "${resourcequotastoragegb}" # 10 GiB of storage
+
+---
+
+apiVersion: security.istio.io/v1beta1
+
+kind: PeerAuthentication
+
+metadata:
+
+  name: voting-mtls-policy
+
+  namespace: ${swci}-${openvironment}-${suffix}
+
+  labels:
+
+    component: mesh
+
+spec:
+
+  mtls:
+
+    mode: STRICT
+
+---
+
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+
+kind: Kustomization
+
+metadata:
+
+  name: ${namespacename}-kustomization
+
+  namespace: ${namespacename}
+
+spec:
+
+  interval: 5m
+
+  targetNamespace: ${namespacename}
+
+  sourceRef:
+
+    kind: GitRepository
+
+    name: ${namespacename}-repo
+
+  path: "./${folderpath}"
+
+  prune: true
+
+  timeout: 1m
+
+---
+
+apiVersion: source.toolkit.fluxcd.io/v1
+
+kind: GitRepository
+
+metadata:
+
+  name: ${namespacename}-repo
+
+  namespace: ${namespacename}
+
+spec:
+
+  interval: 5m0s
+
+  ref:
+
+    branch: ${branchname}
+
+  secretRef:
+
+    name: cluster-config-auth
+
+  timeout: 1m0s
+
+  url: ${gitlabrepourl}
+
+---
+
+apiVersion: external-secrets.io/v1beta1
+
+kind: ExternalSecret
+
+metadata:
+
+  name: cluster-config-auth
+
+  namespace: ${namespacename}
+
+spec:
+
+  refreshInterval: 10m
+
+  secretStoreRef:
+
+    kind: ClusterSecretStore
+
+    name: gitops-appteam-sharedvault
+
+  target:
+
+    name: cluster-config-auth
+
+    creationPolicy: Merge
+
+    # name of the SECRET in the Azure KV (no prefix is by default a SECRET)
+
+  data:
+
+    - secretKey: password
+
+      remoteRef:
+
+        key: readonly-pattoken-gitlab
+
+        decodingStrategy: Auto
+
+---
+
+kind: Secret
+
+metadata:
+
+  name: cluster-config-auth
+
+  namespace: ${namespacename}
+
+apiVersion: v1
+
+data:
+
+  username:
+
+  ca.crt:
+
+---

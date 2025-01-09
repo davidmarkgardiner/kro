@@ -20,8 +20,8 @@ spec:
           cpu: string | default="1000m" description="CPU limit"
           memory: string | default="256Mi" description="Memory limit"
       istio:
-        enabled: boolean | default=true description="Enable Istio integration"
-        host: string | required=true description="Hostname for Istio VirtualService"
+        enabled: boolean | default=false description="Enable Istio integration"
+        host: string | default="" description="Hostname for Istio VirtualService"
         gateway: string | default="aks-istio-ingress/gateway-wildcard" description="Istio gateway"
 
     status:
@@ -187,4 +187,4 @@ spec:
             component: mesh
         spec:
           mtls:
-            mode: STRICT 
+            mode: STRICT

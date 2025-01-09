@@ -1,0 +1,15 @@
+apiVersion: kro.run/v1alpha1
+kind: GitRepo
+metadata:
+  name: gitrepo
+  namespace: kro
+spec:
+  swci: "example"
+  openvironment: "dev"
+  suffix: "test"
+  namespacename: "example-dev-test"
+  resourcequotacpu: "1"
+  resourcequotamemorygb: "1"
+  resourcequotastoragegb: "10Gi"
+  branchname: "main"
+  gitlabrepourl: "https://gitlab.example.com/repo.git" 

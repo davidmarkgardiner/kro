@@ -1,0 +1,106 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: gateway
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: Gateway
+    spec:
+      swci: string | required=true description="SWCI identifier"
+      openvironment: string | required=true description="Environment name"
+      suffix: string | required=true description="Namespace suffix"
+      namespacename: string | required=true description="Name of the namespace"
+      fulldomainname: string | required=true description="Full domain name for the gateway"
+      resourcequotacpu: string | default="1" description="CPU resource quota"
+      resourcequotamemorygb: string | default="1" description="Memory resource quota in GB"
+      resourcequotastoragegb: string | default="10Gi" description="Storage resource quota"
+
+    status:
+      ready: ${namespace.metadata.name != ""}
+
+  resources:
+    - id: namespace
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${schema.spec.swci}-${schema.spec.openvironment}-${schema.spec.suffix}
+
+    - id: networkpolicy
+      template:
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: allow-${schema.spec.swci}
+          namespace: ${schema.spec.swci}-${schema.spec.openvironment}-${schema.spec.suffix}
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Ingress
+          ingress:
+          - from:
+            - namespaceSelector:
+                matchLabels:
+                  namespace: ${schema.spec.swci}
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: aks-istio-ingress
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.azure.com/managedby: aks
+
+    - id: resourcequota
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: resource-quota
+          namespace: ${schema.spec.swci}-${schema.spec.openvironment}-${schema.spec.suffix}
+        spec:
+          hard:
+            requests.cpu: "${schema.spec.resourcequotacpu}"
+            requests.memory: "${schema.spec.resourcequotamemorygb}Gi"
+            requests.storage: "${schema.spec.resourcequotastoragegb}"
+
+    - id: peerauthentication
+      template:
+        apiVersion: security.istio.io/v1beta1
+        kind: PeerAuthentication
+        metadata:
+          name: ${schema.spec.namespacename}-mtls-policy
+          namespace: ${schema.spec.swci}-${schema.spec.openvironment}-${schema.spec.suffix}
+          labels:
+            component: mesh
+        spec:
+          mtls:
+            mode: STRICT
+
+    - id: gateway
+      template:
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: Gateway
+        metadata:
+          name: ${schema.spec.namespacename}-gateway
+          namespace: aks-istio-ingress
+        spec:
+          gatewayClassName: istio
+          addresses:
+          - value: aks-istio-ingressgateway-internal.aks-istio-ingress.svc.cluster.local
+            type: Hostname
+          listeners:
+          - name: private-zone
+            hostname: "${schema.spec.fulldomainname}"
+            protocol: HTTPS
+            port: 443
+            allowedRoutes:
+              namespaces:
+                from: All
+            tls:
+              certificateRefs:
+                - group: ""
+                  kind: Secret
+                  name: tls-certificate
+                  namespace: ${schema.spec.namespacename}
+              mode: Terminate 

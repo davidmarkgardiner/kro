@@ -1,0 +1,17 @@
+apiVersion: kro.run/v1alpha1
+kind: GitGate
+metadata:
+  name: git-gate
+  namespace: kro
+spec:
+  swci: "example"
+  openvironment: "dev"
+  suffix: "test"
+  namespacename: "example-dev-test"
+  resourcequotacpu: "1"
+  resourcequotamemorygb: "1"
+  resourcequotastoragegb: "10Gi"
+  fulldomainname: "example.dev.test.domain.com"
+  branchname: "main"
+  gitlabrepourl: "https://gitlab.example.com/repo.git"
+  folderpath: "apps/example" 

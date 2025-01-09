@@ -1,0 +1,13 @@
+apiVersion: kro.run/v1alpha1
+kind: Orig
+metadata:
+  name: orig
+  namespace: kro
+spec:
+  swci: "example"
+  openvironment: "dev"
+  suffix: "test"
+  namespacename: "example-dev-test"
+  resourcequotacpu: "1"
+  resourcequotamemorygb: "1"
+  resourcequotastoragegb: "10Gi" 
