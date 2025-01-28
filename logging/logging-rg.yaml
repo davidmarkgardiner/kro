@@ -9,6 +9,11 @@ spec:
     kind: Logging
     spec:
       name: string | required=true description="Name of the logging deployment"
+      endpointType: string | required=true description="Type of logging endpoint (e.g. law)"
+      law:
+        workspaceId: string | required=true description="Log Analytics Workspace ID"
+        token: string | required=true description="Log Analytics Workspace token"
+        table: string | required=true description="Log Analytics table name"
     status:
       ready: ${daemonset.metadata.name != ""}
   resources:
@@ -177,7 +182,7 @@ spec:
           name: log-collector-scripts
           namespace: logging
         data:
-          reloader-loop.sh: |
+          reloader-loop.sh: |-
             #!/bin/bash
 
             BINPATH=/opt/fluent-bit/bin/fluent-bit
@@ -214,7 +219,7 @@ spec:
 
             done
 
-          reloader.sh: |
+          reloader.sh: |-
             #!/bin/bash
 
             BINPATH=/opt/fluent-bit/bin/fluent-bit

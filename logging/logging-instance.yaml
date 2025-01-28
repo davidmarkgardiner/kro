@@ -4,4 +4,9 @@ metadata:
   name: logging
   namespace: logging
 spec:
-  name: logging 
+  name: logging-collector
+  endpointType: law
+  law:
+    workspaceId: asdf
+    token: asdf
+    table: mylawtable
