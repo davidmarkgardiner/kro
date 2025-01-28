@@ -1,0 +1,56 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: at39473-file-sc
+provisioner: file.csi.azure.com
+allowVolumeExpansion: true
+mountOptions:
+  - dir_mode=0777
+  - file_mode=0777
+  - uid=0
+  - gid=0
+  - mfsymlinks
+  - cache=strict
+  - actimeo=30
+  - nobrl
+parameters:
+  skuName: Standard_LRS
+  storageAccount: xxxxxx
+  csi.storage.k8s.io/provisioner-secret-name: at39473-file-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: at39473-dev-ns
+  csi.storage.k8s.io/node-stage-secret-name: at39473-file-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: at39473-dev-ns
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: at39473-pv
+  namespace: at39473-dev-ns
+spec:
+  capacity:
+    storage: 4Gi
+  accessModes:
+    - ReadWriteMany
+  storageClassName: at39473-file-sc
+  azureFile:
+    secretName: at39473-file-secret
+    shareName: app
+    readOnly: false
+  persistentVolumeReclaimPolicy: Retain
+  claimRef:
+    namespace: at39473-dev-ns
+    name: at39473-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: at39473-pvc
+  namespace: at39473-dev-ns
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 4Gi
+  volumeName: at39473-pv
+  storageClassName: at39473-file-sc

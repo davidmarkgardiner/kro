@@ -1,0 +1,53 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: storage-file-sc
+provisioner: file.csi.azure.com
+allowVolumeExpansion: true
+mountOptions:
+  - dir_mode=0777
+  - file_mode=0777
+  - uid=0
+  - gid=0
+  - mfsymlinks
+  - cache=strict
+  - actimeo=30
+  - nobrl
+parameters:
+  skuName: Standard_LRS
+  storageAccount: ${storage-instance} # References the storage account created by the Instance
+  csi.storage.k8s.io/provisioner-secret-name: storage-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: storage
+  csi.storage.k8s.io/node-stage-secret-name: storage-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: storage
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: storage-pv
+  namespace: storage
+spec:
+  capacity:
+    storage: 5Ti
+  accessModes:
+    - ReadWriteMany
+  storageClassName: storage-file-sc
+  azureFile:
+    secretName: storage-secret
+    shareName: app # Matches the file share name in the storage account
+    readOnly: false
+  persistentVolumeReclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: storage-pvc
+  namespace: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Ti
+  volumeName: storage-pv
+  storageClassName: storage-file-sc 

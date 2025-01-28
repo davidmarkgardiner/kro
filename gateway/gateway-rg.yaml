@@ -1,0 +1,58 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: gateway
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: GatewayConfig
+    spec:
+      name: string | required=true description="Name of the gateway"
+      hostname: string | required=true description="Hostname for the gateway"
+      namespace: string | default="aks-istio-ingress" description="Namespace for the gateway"
+      tlsSecretName: string | required=true description="Name of the TLS secret"
+      tlsSecretNamespace: string | required=true description="Namespace containing the TLS secret"
+      port: integer | default=443 description="Port for the gateway"
+      protocol: string | default="HTTPS" description="Protocol for the gateway"
+
+    status:
+      gatewayName: ${gateway.metadata.name}
+      gatewayNamespace: ${gateway.metadata.namespace}
+      hostname: ${gateway.spec.listeners[0].hostname}
+
+  resources:
+    - id: gateway
+      template:
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: Gateway
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+        spec:
+          gatewayClassName: istio
+          addresses:
+          - value: aks-istio-ingressgateway-internal.
+            type: Hostname
+          listeners:
+          - name: private-zone
+            hostname: ${schema.spec.hostname}
+            protocol: ${schema.spec.protocol}
+            port: ${schema.spec.port}
+            allowedRoutes:
+              namespaces:
+                from: All
+            tls:
+              certificateRefs:
+                - group: ""
+                  kind: Secret
+                  name: ${schema.spec.tlsSecretName}
+                  namespace: ${schema.spec.tlsSecretNamespace}
+              mode: Terminate
+              options:
+                cipherSuites:
+                - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+                - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+                - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+                - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+                minProtocolVersion: TLSV1_2 

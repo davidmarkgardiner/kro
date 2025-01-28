@@ -1,0 +1,53 @@
+apiVersion: gateway.networking.k8s.io/v1
+
+kind: Gateway
+
+metadata:
+
+  name: ${namespacename}-gateway
+
+  namespace: aks-istio-ingress
+
+spec:
+
+  gatewayClassName: istio
+
+  addresses:
+
+  - value: aks-istio-ingressgateway-internal.
+
+    type: Hostname
+
+  listeners:
+
+  - name: private-zone
+
+    hostname: "${fulldomainname}" # full domain name
+
+    protocol: HTTPS
+
+    port: 443
+
+    allowedRoutes:
+
+      namespaces:
+
+        from: All
+
+    tls:
+
+      certificateRefs:
+
+        - group: ""
+
+          kind: Secret
+
+          name: tls-certificate
+
+          namespace: ${namespacename}
+
+      mode: Terminate
+
+      options:
+
+        cipherSuites:

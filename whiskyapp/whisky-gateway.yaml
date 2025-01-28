@@ -1,0 +1,32 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: whisky-gateway
+  namespace: aks-istio-ingress
+spec:
+  gatewayClassName: istio
+  addresses:
+  - value: aks-istio-ingressgateway-internal.
+    type: Hostname
+  listeners:
+  - name: private-zone
+    hostname: "whisky.internal.dev.azure.com" # full domain name
+    protocol: HTTPS
+    port: 443
+    allowedRoutes:
+      namespaces:
+        from: All
+    tls:
+      certificateRefs:
+        - group: ""
+          kind: Secret
+          name: tls-certificate
+          namespace: whisky
+      mode: Terminate
+      options:
+        cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        minProtocolVersion: TLSV1_2 

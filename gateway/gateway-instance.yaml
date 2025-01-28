@@ -1,0 +1,15 @@
+apiVersion: kro.run/v1alpha1
+kind: Instance
+metadata:
+  name: gateway-instance
+  namespace: kro
+spec:
+  resourceGroup: gateway
+  template:
+    apiVersion: v1alpha1
+    kind: GatewayConfig
+    spec:
+      name: main-gateway
+      hostname: "gateway.internal.dev.azure.com"
+      tlsSecretName: tls-certificate
+      tlsSecretNamespace: kro 

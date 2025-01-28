@@ -1,0 +1,82 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: storage
+  namespace: kro
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: StorageConfig
+    spec:
+      name: string | required=true description="Name of the storage configuration"
+      storageAccount: string | required=true description="Azure storage account name"
+      secretName: string | required=true description="Name of the secret containing storage credentials"
+      shareName: string | default="app" description="Name of the file share"
+      storageSize: string | default="5Ti" description="Size of the storage"
+      accessMode: string | default="ReadWriteMany" description="Storage access mode"
+
+    status:
+      storageClassName: ${storageclass.metadata.name}
+      persistentVolumeName: ${persistentvolume.metadata.name}
+      claimName: ${persistentvolumeclaim.metadata.name}
+
+  resources:
+    - id: storageclass
+      template:
+        apiVersion: storage.k8s.io/v1
+        kind: StorageClass
+        metadata:
+          name: ${schema.spec.name}-sc
+        provisioner: file.csi.azure.com
+        allowVolumeExpansion: true
+        mountOptions:
+          - dir_mode=0777
+          - file_mode=0777
+          - uid=0
+          - gid=0
+          - mfsymlinks
+          - cache=strict
+          - actimeo=30
+          - nobrl
+        parameters:
+          skuName: Standard_LRS
+          storageAccount: ${schema.spec.storageAccount}
+          csi.storage.k8s.io/provisioner-secret-name: ${schema.spec.secretName}
+          csi.storage.k8s.io/provisioner-secret-namespace: ${metadata.namespace}
+          csi.storage.k8s.io/node-stage-secret-name: ${schema.spec.secretName}
+          csi.storage.k8s.io/node-stage-secret-namespace: ${metadata.namespace}
+
+    - id: persistentvolume
+      template:
+        apiVersion: v1
+        kind: PersistentVolume
+        metadata:
+          name: ${schema.spec.name}-pv
+          namespace: ${metadata.namespace}
+        spec:
+          capacity:
+            storage: ${schema.spec.storageSize}
+          accessModes:
+            - ${schema.spec.accessMode}
+          storageClassName: ${schema.spec.name}-sc
+          azureFile:
+            secretName: ${schema.spec.secretName}
+            shareName: ${schema.spec.shareName}
+            readOnly: false
+          persistentVolumeReclaimPolicy: Retain
+
+    - id: persistentvolumeclaim
+      template:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: ${schema.spec.name}-pvc
+          namespace: ${metadata.namespace}
+        spec:
+          accessModes:
+            - ${schema.spec.accessMode}
+          resources:
+            requests:
+              storage: ${schema.spec.storageSize}
+          volumeName: ${schema.spec.name}-pv
+          storageClassName: ${schema.spec.name}-sc 
