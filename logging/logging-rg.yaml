@@ -1,0 +1,414 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: logging-rg
+  namespace: logging
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: Logging
+    spec:
+      name: string | required=true description="Name of the logging deployment"
+    status:
+      ready: ${daemonset.metadata.name != ""}
+  resources:
+    - id: priorityClass
+      template:
+        apiVersion: scheduling.k8s.io/v1
+        kind: PriorityClass
+        metadata:
+          name: logging
+        value: 10000
+        globalDefault: false
+        description: This priority class should be used for logging pods only
+
+    - id: serviceAccount
+      template:
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: logging
+          namespace: logging
+
+    - id: configMapCollector
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: log-collector-config
+          namespace: logging
+        data:
+          filter-kubernetes.conf: |
+            [FILTER]
+                Name                kubernetes
+                Match               kube.*
+                Kube_URL            https://kubernetes.default.svc:443
+                Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+                Kube_Tag_Prefix     kube.var.log.containers.
+                Merge_Log           On
+                Merge_Log_Trim      On
+                Keep_Log            Off
+                K8S-Logging.Parser  On
+                K8S-Logging.Exclude Off
+                Namespace_Annotations         On
+                Namespace_Labels              On
+
+            [FILTER]
+                name                      multiline
+                match                     kube.*
+                multiline.parser          cri
+                emitter_storage.type      filesystem
+                emitter_mem_buf_limit  128M
+
+            [FILTER]
+                Name          lua
+                Match         kube.*
+                call          compute_law_endpoint
+                script        /opt/fluent-bit/etc/fluent-bit/law.lua
+
+            [FILTER]
+                Name          rewrite_tag
+                Match         kube.*
+                Rule          $law_endpoint ^.*$ processed.$law_endpoint.$TAG false
+                Emitter_Name  re_emitted
+
+            [FILTER]
+                Name          modify
+                Match         processed.law-endpoint.*
+                Remove        law_endpoint
+                Remove        _p
+
+          fluent-bit.conf: |
+            [SERVICE]
+                Flush         1
+                Log_Level     info
+                Daemon        off
+                Parsers_File  parsers.conf
+                HTTP_Server   On
+                HTTP_Listen   0.0.0.0
+                HTTP_Port     2020
+                Hot_Reload    On
+                storage.path              /var/log/fluent-bit-collector/cache/
+                storage.sync              full
+                storage.checksum          off
+                storage.backlog.mem_limit 256M
+                storage.pause_on_chunks_overlimit On
+                storage.max_chunks_up 256
+                storage.total_limit_size 1099511627776
+                storage.metrics   On
+
+            @INCLUDE input-kubernetes.conf
+            @INCLUDE filter-kubernetes.conf
+            @INCLUDE ../namespaces/*.conf
+            @INCLUDE output.conf
+
+          input-kubernetes.conf: |
+            [INPUT]
+                Name              tail
+                Tag               kube.*
+                Path              /var/log/containers/*.log
+                Parser            cri
+                DB                /var/log/fluent-bit-collector/db/
+                Mem_Buf_Limit     5MB
+                Skip_Long_Lines   Off
+                Refresh_Interval  10
+                storage.type      filesystem
+                storage.pause_on_chunks_overlimit On
+
+            [INPUT]
+                name            fluentbit_metrics
+                tag             internal_metrics
+                scrape_interval 2
+
+          law.lua: |
+            function compute_law_endpoint(tag, timestamp, record)
+              if (record["kubernetes"]["annotations"]["logging/endpoint"] or record["kubernetes_namespace"]["annotations"]["logging/endpoint"]) then
+                record["law_endpoint"] = "law-endpoint." .. record["kubernetes"]["namespace_name"] .. "." .. (record["kubernetes"]["annotations"]["logging/endpoint"] or record["kubernetes_namespace"]["annotations"]["logging/endpoint"])
+              end
+              return 2, timestamp, record
+            end
+
+          output.conf: |
+            [OUTPUT]
+                name            prometheus_exporter
+                match           internal_metrics
+                host            0.0.0.0
+                port            2021
+
+            [OUTPUT]
+                name            null
+                match           *
+
+          parsers.conf: |
+            [PARSER]
+                Name        json
+                Format      json
+                Time_Key    time
+                Time_Format %d/%b/%Y:%H:%M:%S %z
+                Time_Keep   Off
+
+            [PARSER]
+                Name        syslog
+                Format      regex
+                Regex       ^\\<(?<pri>[0-9]+)\\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\\/\\.\\-]*)(?:\\[(?<pid>[0-9]+)\\])?(?:[^\\:]*\\:)? *(?<message>.*)$
+                Time_Key    time
+                Time_Format %b %d %H:%M:%S
+
+            [PARSER]
+                Name        cri
+                Format      regex
+                Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+                Time_Key    time
+                Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+            [PARSER]
+                Name docker
+                Format json
+                Time_Key time
+                Time_Format %Y-%m-%dT%H:%M:%S.%L
+                Time_Keep Off
+
+    - id: configMapScripts
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: log-collector-scripts
+          namespace: logging
+        data:
+          reloader-loop.sh: |
+            #!/bin/bash
+
+            BINPATH=/opt/fluent-bit/bin/fluent-bit
+            CONFIGDIR=/opt/fluent-bit/etc/fluent-bit
+            NAMESPACESDIR=/opt/fluent-bit/etc/fluent-bit/namespaces
+            while true; do
+
+              sleep 60
+
+              /bin/rm $NAMESPACESDIR/*
+              touch $NAMESPACESDIR/empty.conf
+
+              curl --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /run/secrets/kubernetes.io/serviceaccount/token)" -X GET https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/uk8s.xxxx/v1/loggingendpoints | jq -r  '[.items[]|{namespace: .metadata.namespace, name: .metadata.name} * .spec.law] | .[]|[.namespace, .name, .table, .workspaceId, .token] | join(" ")' > $NAMESPACESDIR/loggingendpoints
+
+              cat $NAMESPACESDIR/loggingendpoints | while read namespace ep table workspace token ; do
+                echo ----------------------------------------
+                echo Testing configuration for $namespace-$ep
+                workspace=$workspace token=$token table=$table namespace=$namespace ep=$ep $BINPATH -c $CONFIGDIR/lawtest.conf
+                if [ $? -ne "0" ]; then
+                  echo skipping $namespace-$ep
+                  continue
+                fi
+                cat <<EOF > /opt/fluent-bit/etc/fluent-bit/namespaces/$namespace-$ep.conf
+            [OUTPUT]
+                Name            azure
+                Match           processed.law-endpoint.$namespace.$ep.*
+                Customer_ID     $workspace
+                Shared_Key      $token
+                Log_Type        $table
+            EOF
+              done
+
+              curl -X POST -d '{}' localhost:2020/api/v2/reload
+
+            done
+
+          reloader.sh: |
+            #!/bin/bash
+
+            BINPATH=/opt/fluent-bit/bin/fluent-bit
+            CONFIGDIR=/opt/fluent-bit/etc/fluent-bit
+            NAMESPACESDIR=/opt/fluent-bit/etc/fluent-bit/namespaces
+
+            /bin/rm $NAMESPACESDIR/*
+            touch $NAMESPACESDIR/empty.conf
+
+            curl --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /run/secrets/kubernetes.io/serviceaccount/token)" -X GET https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/uk8s.xxxx/v1/loggingendpoints | jq -r  '[.items[]|{namespace: .metadata.namespace, name: .metadata.name} * .spec.law] | .[]|[.namespace, .name, .table, .workspaceId, .token] | join(" ")' > $NAMESPACESDIR/loggingendpoints
+
+            cat $NAMESPACESDIR/loggingendpoints | while read namespace ep table workspace token ; do
+              echo ----------------------------------------
+              echo Testing configuration for $namespace-$ep
+              workspace=$workspace token=$token table=$table namespace=$namespace ep=$ep $BINPATH -c $CONFIGDIR/lawtest.conf
+              if [ $? -ne "0" ]; then
+                echo skipping $namespace-$ep
+                continue
+              fi
+              cat <<EOF > /opt/fluent-bit/etc/fluent-bit/namespaces/$namespace-$ep.conf
+            [OUTPUT]
+              Name            azure
+              Match           processed.law-endpoint.$namespace.$ep.*
+              Customer_ID     $workspace
+              Shared_Key      $token
+              Log_Type        $table
+            EOF
+            done
+
+    - id: clusterRole
+      template:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: cluster-logging
+        rules:
+          - apiGroups:
+              - ""
+            resources:
+              - namespaces
+              - pods
+            verbs:
+              - get
+              - list
+              - watch
+          - apiGroups:
+              - uk8s.xxxx
+            resources:
+              - loggingendpoints
+            verbs:
+              - get
+              - list
+              - watch
+
+    - id: clusterRoleBinding
+      template:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: release-name-cluster-logging
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-logging
+        subjects:
+          - kind: ServiceAccount
+            name: logging
+            namespace: logging
+
+    - id: daemonset
+      template:
+        apiVersion: apps/v1
+        kind: DaemonSet
+        metadata:
+          name: log-collector
+          namespace: logging
+          labels:
+            k8s-app: fluent-bit-logging
+            kubernetes.io/cluster-service: "true"
+        spec:
+          selector:
+            matchLabels:
+              k8s-app: fluent-bit-logging
+          template:
+            metadata:
+              labels:
+                k8s-app: fluent-bit-logging
+                kubernetes.io/cluster-service: "true"
+              annotations:
+                prometheus.io/scrape: "true"
+                prometheus.io/port: "2020"
+                prometheus.io/path: /api/v1/metrics/prometheus
+            spec:
+              serviceAccount: logging
+              serviceAccountName: logging
+              terminationGracePeriodSeconds: 10
+              initContainers:
+                - name: config-init
+                  image: xxxx/ubs/ise/fluent-bit:v3.0.7
+                  imagePullPolicy: IfNotPresent
+                  args:
+                    - -c
+                    - source /opt/fluent-bit/scripts/reloader.sh
+                  command:
+                    - /bin/bash
+                  volumeMounts:
+                    - mountPath: /opt/fluent-bit/scripts
+                      name: fluent-bit-scripts
+                    - mountPath: /opt/fluent-bit/etc/fluent-bit/
+                      name: fluent-bit-etc
+                    - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
+                      name: namespace-config
+              containers:
+                - name: fluent-bit
+                  image: xxxx/ubs/ise/fluent-bit:v3.0.7
+                  imagePullPolicy: IfNotPresent
+                  args:
+                    - -c
+                    - /opt/fluent-bit/etc/fluent-bit/fluent-bit.conf
+                  command:
+                    - /opt/fluent-bit/bin/fluent-bit
+                  ports:
+                    - containerPort: 2020
+                      protocol: TCP
+                  volumeMounts:
+                    - mountPath: /cache
+                      name: templogs
+                    - mountPath: /var/log
+                      name: varlog
+                    - mountPath: /opt/fluent-bit/etc/fluent-bit/
+                      name: fluent-bit-etc
+                    - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
+                      name: namespace-config
+                  securityContext:
+                    capabilities:
+                      drop:
+                        - ALL
+                      add:
+                        - CAP_FOWNER
+                  resources:
+                    limits:
+                      cpu: 800m
+                      memory: 4Gi
+                    requests:
+                      cpu: 200m
+                      memory: 4Gi
+                - name: config-reloader
+                  image: xxxx/ubs/ise/fluent-bit:v3.0.7
+                  imagePullPolicy: IfNotPresent
+                  args:
+                    - -c
+                    - source /opt/fluent-bit/scripts/reloader-loop.sh
+                  command:
+                    - /bin/bash
+                  volumeMounts:
+                    - mountPath: /opt/fluent-bit/scripts
+                      name: fluent-bit-scripts
+                    - mountPath: /opt/fluent-bit/etc/fluent-bit/
+                      name: fluent-bit-etc
+                    - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
+                      name: namespace-config
+                  resources:
+                    limits:
+                      cpu: 150m
+                      memory: 128Mi
+                    requests:
+                      cpu: 50m
+                      memory: 128Mi
+              securityContext:
+                seccompProfile:
+                  type: RuntimeDefault
+              volumes:
+                - emptyDir: {}
+                  name: templogs
+                - hostPath:
+                    path: /var/log
+                    type: ""
+                  name: varlog
+                - configMap:
+                    defaultMode: 440
+                    name: log-collector-scripts
+                  name: fluent-bit-scripts
+                - configMap:
+                    defaultMode: 440
+                    name: log-collector-config
+                  name: fluent-bit-etc
+                - name: namespace-config
+                  emptyDir: {}
+              tolerations:
+                - key: node-role.kubernetes.io/master
+                  operator: Exists
+                  effect: NoSchedule
+                - key: kubernetes.azure.com/scalesetpriority
+                  operator: Equal
+                  value: spot
+                  effect: NoSchedule
+              priorityClassName: logging 

@@ -1,0 +1,7 @@
+apiVersion: kro.run/v1alpha1
+kind: Logging
+metadata:
+  name: logging
+  namespace: logging
+spec:
+  name: logging 

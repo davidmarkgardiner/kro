@@ -1,0 +1,1109 @@
+--
+
+# Source: logging/templates/priorityclass.yaml
+
+apiVersion: scheduling.k8s.io/v1
+
+kind: PriorityClass
+
+metadata:
+
+  name: logging
+
+value: 10000
+
+globalDefault: false
+
+description: This priority class should be used for logging pods only
+
+---
+
+# Source: logging/templates/namespace-logging.yml
+
+apiVersion: v1
+
+kind: Namespace
+
+metadata:
+
+  name: logging
+
+---
+
+# Source: logging/templates/serviceaccount.yaml
+
+apiVersion: v1
+
+kind: ServiceAccount
+
+metadata:
+
+  name: logging
+
+  namespace: logging
+
+---
+
+# Source: logging/templates/tests/testsa.yaml
+
+apiVersion: v1
+
+kind: ServiceAccount
+
+metadata:
+
+  name: helmtest-sa
+
+  namespace: logging
+
+---
+
+# Source: logging/templates/cm-collector-config.yaml
+
+apiVersion: v1
+
+kind: ConfigMap
+
+metadata:
+
+  name: log-collector-config
+
+  namespace: logging
+
+data:
+
+  filter-kubernetes.conf: "[FILTER]\r\n    Name                kubernetes\r\n    Match
+
+    \              kube.*\r\n    Kube_URL            https://kubernetes.default.svc:443\r\n
+
+    \   Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\r\n
+
+    \   Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token\r\n
+
+    \   Kube_Tag_Prefix     kube.var.log.containers.\r\n    Merge_Log           On\r\n
+
+    \   Merge_Log_Trim      On\r\n    Keep_Log            Off\r\n    K8S-Logging.Parser
+
+    \ On\r\n    K8S-Logging.Exclude Off\r\n    Namespace_Annotations         On\r\n
+
+    \   Namespace_Labels              On\r\n\r\n[FILTER]\r\n    name                      multiline\r\n
+
+    \   match                     kube.*\r\n#    multiline.key_content     log\r\n#
+
+    \   mode                      partial_message\r\n    multiline.parser          cri\r\n
+
+    \   emitter_storage.type      filesystem\r\n    emitter_mem_buf_limit  128M\r\n\r\n#
+
+    Full path must be specified to avoid https://github.com/fluent/fluent-bit/issues/8240
+
+    (closed but not fixed)\r\n[FILTER]\r\n    Name          lua\r\n    Match         kube.*\r\n
+
+    \   call          compute_law_endpoint\r\n    script        /opt/fluent-bit/etc/fluent-bit/law.lua\r\n\r\n#
+
+    Re-route logs that have been successfully parsed by the law lua script\r\n[FILTER]\r\n
+
+    \   Name          rewrite_tag\r\n    Match         kube.*\r\n    Rule          $law_endpoint
+
+    ^.*$ processed.$law_endpoint.$TAG false\r\n    Emitter_Name  re_emitted\r\n\r\n[FILTER]\r\n
+
+    \   Name          modify\r\n    Match         processed.law-endpoint.*\r\n    Remove
+
+    \       law_endpoint\r\n    Remove        _p\r\n"
+
+  fluent-bit.conf: "[SERVICE]\r\n    Flush         1\r\n    Log_Level     info\r\n    Daemon        off\r\n    Parsers_File  parsers.conf\r\n    HTTP_Server
+
+    \  On\r\n    HTTP_Listen   0.0.0.0\r\n    HTTP_Port     2020\r\n    Hot_Reload    On\r\n
+
+    \   storage.path              /var/log/fluent-bit-collector/cache/\r\n    storage.sync
+
+    \             full\r\n    storage.checksum          off\r\n    storage.backlog.mem_limit
+
+    256M\r\n    storage.pause_on_chunks_overlimit On\r\n    storage.max_chunks_up 256\r\n
+
+    \   storage.total_limit_size 1099511627776\r\n    storage.metrics   On\r\n\r\n@INCLUDE
+
+    input-kubernetes.conf\r\n@INCLUDE filter-kubernetes.conf\r\n@INCLUDE ../namespaces/*.conf\r\n@INCLUDE
+
+    output.conf\r\n"
+
+  input-kubernetes.conf: "[INPUT]\r\n    Name              tail\r\n    Tag               kube.*\r\n
+
+    \   Path              /var/log/containers/*.log\r\n    Parser            cri\r\n
+
+    \   DB                /var/log/fluent-bit-collector/db/\r\n    Mem_Buf_Limit     5MB\r\n
+
+    \   Skip_Long_Lines   Off\r\n    Refresh_Interval  10\r\n    storage.type      filesystem\r\n
+
+    \   storage.pause_on_chunks_overlimit On\r\n\r\n[INPUT]\r\n    name            fluentbit_metrics\r\n
+
+    \   tag             internal_metrics\r\n    scrape_interval 2\r\n"
+
+  law.lua: "function compute_law_endpoint(tag, timestamp, record)\r\n  if (record[\"kubernetes\"][\"annotations\"][\"logging/endpoint\"]
+
+    or record[\"kubernetes_namespace\"][\"annotations\"][\"logging/endpoint\"]) then\r\n
+
+    \   record[\"law_endpoint\"] = \"law-endpoint.\" .. record[\"kubernetes\"][\"namespace_name\"]
+
+    .. \".\" .. (record[\"kubernetes\"][\"annotations\"][\"logging/endpoint\"] or record[\"kubernetes_namespace\"][\"annotations\"][\"logging/endpoint\"])\r\n
+
+    \ end\r\n  return 2, timestamp, record\r\nend\r\n"
+
+  lawtest.conf: "# This configuration is used to test user's namespace logging settings
+
+    before including it to the main process\r\n\r\n[SERVICE]\r\n    Daemon        off\r\n\r\n[INPUT]\r\n
+
+    \   Name dummy\r\n    Dummy {\"message\":\"Configuration test\"}\r\n\r\n[OUTPUT]\r\n
+
+    \   Name exit\r\n    Match *\r\n\r\n[OUTPUT]\r\n    Name            azure\r\n    Match
+
+    \          processed.law-endpoint.${namespace}.${ep}.*\r\n    Customer_ID     ${workspace}\r\n
+
+    \   Shared_Key      ${token}\r\n    Log_Type        ${table}\r\n"
+
+  output.conf: "[OUTPUT]\r\n    name            prometheus_exporter\r\n    match           internal_metrics\r\n
+
+    \   host            0.0.0.0\r\n    port            2021\r\n\r\n# Log to stdout logs
+
+    that have not matched any output\r\n# This might be changed for a catch-all LAW
+
+    table\r\n#[OUTPUT]\r\n#    name            stdout\r\n#    match           processed.law-endpoint.*\r\n#
+
+    \   Format          json\r\n\r\n# Drop unmatched events\r\n[OUTPUT]\r\n    name
+
+    \           null\r\n    match           *\r\n"
+
+  parsers.conf: "[PARSER]\r\n    Name        json\r\n    Format      json\r\n    Time_Key
+
+    \   time\r\n    Time_Format %d/%b/%Y:%H:%M:%S %z\r\n    Time_Keep   Off\r\n\r\n[PARSER]\r\n
+
+    \   Name        syslog\r\n    Format      regex\r\n    Regex       ^\\<(?<pri>[0-9]+)\\>(?<time>[^
+
+    ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\\/\\.\\-]*)(?:\\[(?<pid>[0-9]+)\\])?(?:[^\\:]*\\:)?
+
+    *(?<message>.*)$\r\n    Time_Key    time\r\n    Time_Format %b %d %H:%M:%S\r\n\r\n[PARSER]\r\n
+
+    \   Name        cri\r\n    Format      regex\r\n    Regex       ^(?<time>[^ ]+)
+
+    (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$\r\n    Time_Key    time\r\n
+
+    \   Time_Format %Y-%m-%dT%H:%M:%S.%L%z\r\n\r\n[PARSER]\r\n    Name docker\r\n    Format
+
+    json\r\n    Time_Key time\r\n    Time_Format %Y-%m-%dT%H:%M:%S.%L\r\n    Time_Keep
+
+    Off\r\n"
+
+---
+
+# Source: logging/templates/cm-collector-scripts.yaml
+
+apiVersion: v1
+
+kind: ConfigMap
+
+metadata:
+
+  name: log-collector-scripts
+
+  namespace: logging
+
+data:
+
+  reloader-loop.sh: "#!/bin/bash\r\n\r\nBINPATH=/opt/fluent-bit/bin/fluent-bit\r\nCONFIGDIR=/opt/fluent-bit/etc/fluent-bit\r\nNAMESPACESDIR=/opt/fluent-bit/etc/fluent-bit/namespaces\r\nwhile
+
+    true; do\r\n\r\n  sleep 60\r\n\r\n  /bin/rm $NAMESPACESDIR/*\r\n  touch $NAMESPACESDIR/empty.conf\r\n\r\n
+
+    \ curl --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt -H \"Authorization:
+
+    Bearer $(cat /run/secrets/kubernetes.io/serviceaccount/token)\" -X GET https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/uk8s.xxxx/v1/loggingendpoints
+
+    | jq -r  '[.items[]|{namespace: .metadata.namespace, name: .metadata.name} * .spec.law]
+
+    | .[]|[.namespace, .name, .table, .workspaceId, .token] | join(\" \")' > $NAMESPACESDIR/loggingendpoints\r\n\r\n
+
+    \ cat $NAMESPACESDIR/loggingendpoints | while read namespace ep table workspace
+
+    token ; do\r\n    echo ----------------------------------------\r\n    echo Testing
+
+    configuration for $namespace-$ep\r\n    workspace=$workspace token=$token table=$table
+
+    namespace=$namespace ep=$ep $BINPATH -c $CONFIGDIR/lawtest.conf\r\n    if [ $? -ne
+
+    \"0\" ]; then\r\n      echo skipping $namespace-$ep\r\n      continue\r\n    fi\r\n
+
+    \   cat <<EOF > /opt/fluent-bit/etc/fluent-bit/namespaces/$namespace-$ep.conf\r\n[OUTPUT]\r\n
+
+    \   Name            azure\r\n    Match           processed.law-endpoint.$namespace.$ep.*\r\n
+
+    \   Customer_ID     $workspace\r\n    Shared_Key      $token\r\n    Log_Type        $table\r\nEOF\r\n
+
+    \ done\r\n\r\n  curl -X POST -d '{}' localhost:2020/api/v2/reload\r\n\r\ndone\r\n"
+
+  reloader.sh: "#!/bin/bash\r\n\r\nBINPATH=/opt/fluent-bit/bin/fluent-bit\r\nCONFIGDIR=/opt/fluent-bit/etc/fluent-bit\r\nNAMESPACESDIR=/opt/fluent-bit/etc/fluent-bit/namespaces\r\n\r\n/bin/rm
+
+    $NAMESPACESDIR/*\r\ntouch $NAMESPACESDIR/empty.conf\r\n\r\ncurl --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+    -H \"Authorization: Bearer $(cat /run/secrets/kubernetes.io/serviceaccount/token)\"
+
+    -X GET https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/uk8s.xxxx/v1/loggingendpoints
+
+    | jq -r  '[.items[]|{namespace: .metadata.namespace, name: .metadata.name} * .spec.law]
+
+    | .[]|[.namespace, .name, .table, .workspaceId, .token] | join(\" \")' > $NAMESPACESDIR/loggingendpoints\r\n\r\ncat
+
+    $NAMESPACESDIR/loggingendpoints | while read namespace ep table workspace token
+
+    ; do\r\n  echo ----------------------------------------\r\n  echo Testing configuration
+
+    for $namespace-$ep\r\n  workspace=$workspace token=$token table=$table namespace=$namespace
+
+    ep=$ep $BINPATH -c $CONFIGDIR/lawtest.conf\r\n  if [ $? -ne \"0\" ]; then\r\n    echo
+
+    skipping $namespace-$ep\r\n    continue\r\n  fi\r\n  cat <<EOF > /opt/fluent-bit/etc/fluent-bit/namespaces/$namespace-$ep.conf\r\n[OUTPUT]\r\n
+
+    \ Name            azure\r\n  Match           processed.law-endpoint.$namespace.$ep.*\r\n
+
+    \ Customer_ID     $workspace\r\n  Shared_Key      $token\r\n  Log_Type        $table\r\nEOF\r\ndone\r\n"
+
+---
+
+# Source: logging/templates/crd-loggingendpoint.yaml
+
+apiVersion: apiextensions.k8s.io/v1
+
+kind: CustomResourceDefinition
+
+metadata:
+
+  name: loggingendpoints.uk8s.xxxx
+
+spec:
+
+  group: uk8s.xxxx
+
+  scope: Namespaced
+
+  names:
+
+    plural: loggingendpoints
+
+    singular: loggingendpoint
+
+    kind: LoggingEndpoint
+
+  versions:
+
+  - name: v1
+
+    served: true
+
+    storage: true
+
+    schema:
+
+      openAPIV3Schema:
+
+        type: object
+
+        properties:
+
+          spec:
+
+            type: object
+
+            description: |
+
+              Defines a logging target. The LoggingEndpoint name can be used in pod or namespace annotations to instruct the logging stack where pod logs should be sent.
+
+              You can use the "logging/endpoint=<loggingendpoint name>" annotation to set the logging target.
+
+              eg: logging/endpoint=myworkspace
+
+            properties:
+
+              endpointType:
+
+                type: string
+
+                description: Currently only supports Log Analytics Workspace endpoints.
+
+                enum:
+
+                - law
+
+              law:
+
+                type: object
+
+                description: Configuration settings for the Log Analytics Workspace endpoint. This field must be present and fully defined when creating LAW LoggingEndpoints.
+
+                properties:
+
+                  workspaceId:
+
+                    type: string
+
+                    description: |
+
+                      UUID of the LAW workspace. In the Azure UI, this can be found on the LAW workspace page, under settings -> Agents -> Workspace ID
+
+                    format: uuid
+
+                  token:
+
+                    type: string
+
+                    description: |
+
+                       Key of the LAW workspace. In the Azure UI, this can be found on the LAW workspace page, under settings -> Agents -> Primary or Secondary key.
+
+                    format: byte
+
+                  table:
+
+                    type: string
+
+                    description: Name of the Log Analytics table that will receive the logs. It will be suffixed with "_CL". If the table doesn't exist, it will be automatically created.
+
+                    pattern: "^[0-9A-Za-z_]+$"
+
+          status:
+
+            type: object
+
+            properties:
+
+              state:
+
+                type: string
+
+    additionalPrinterColumns:
+
+    - jsonPath: .spec.endpointType
+
+      name: Endpoint Type
+
+      type: string
+
+    - jsonPath: .spec.law.workspaceId
+
+      name: LAW Workspace ID
+
+      type: string
+
+---
+
+# Source: logging/templates/clusterrole-logging.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: ClusterRole
+
+metadata:
+
+  name: cluster-logging
+
+rules:
+
+- apiGroups:
+
+  - ""
+
+  resources:
+
+  - namespaces
+
+  - pods
+
+  verbs:
+
+  - get
+
+  - list
+
+  - watch
+
+ 
+
+- apiGroups:
+
+  - uk8s.xxxx
+
+  resources:
+
+  - loggingendpoints
+
+  verbs:
+
+  - get
+
+  - list
+
+  - watch
+
+---
+
+# Source: logging/templates/clusterrolebinding-logging.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: ClusterRoleBinding
+
+metadata:
+
+  name: release-name-cluster-logging
+
+roleRef:
+
+  apiGroup: rbac.authorization.k8s.io
+
+  kind: ClusterRole
+
+  name: cluster-logging
+
+subjects:
+
+  - kind: ServiceAccount
+
+    name: logging
+
+    namespace: logging
+
+---
+
+# Source: logging/templates/tests/testsa.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: ClusterRoleBinding
+
+metadata:
+
+  name: helmtesting-logging
+
+subjects:
+
+  - kind: ServiceAccount
+
+    name: helmtest-sa
+
+    namespace: logging
+
+roleRef:
+
+  kind: ClusterRole
+
+  name: helmtesting
+
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+# Source: logging/templates/ds-fluentbit-collector.yaml
+
+apiVersion: apps/v1
+
+kind: DaemonSet
+
+metadata:
+
+  name: log-collector
+
+  namespace: logging
+
+  labels:
+
+    k8s-app: fluent-bit-logging
+
+    kubernetes.io/cluster-service: "true"
+
+spec:
+
+  selector:
+
+    matchLabels:
+
+      k8s-app: fluent-bit-logging
+
+  template:
+
+    metadata:
+
+      labels:
+
+        k8s-app: fluent-bit-logging
+
+        kubernetes.io/cluster-service: "true"
+
+      annotations:
+
+        prometheus.io/scrape: "true"
+
+        prometheus.io/port: "2020"
+
+        prometheus.io/path: /api/v1/metrics/prometheus
+
+        config-hash: a690b9759a90f6593c1aa5e73998a6244258ce88ca5b52bb2b5213aa3c8b00c6
+
+        scripts-hash: 4d77f87926fe533570ff5bd3187d28edce7dcfee70fa59e931febbfdea700514
+
+ 
+
+    spec:
+
+      serviceAccount: logging
+
+      serviceAccountName: logging
+
+      terminationGracePeriodSeconds: 10
+
+      initContainers:
+
+      - name: config-init
+
+        image: xxxx/ubs/ise/fluent-bit:v3.0.7
+
+        imagePullPolicy: IfNotPresent
+
+        args:
+
+        - -c
+
+        - source /opt/fluent-bit/scripts/reloader.sh
+
+        command:
+
+        - /bin/bash
+
+        volumeMounts:
+
+        - mountPath: /opt/fluent-bit/scripts
+
+          name: fluent-bit-scripts
+
+        - mountPath: /opt/fluent-bit/etc/fluent-bit/
+
+          name: fluent-bit-etc
+
+        - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
+
+          name: namespace-config
+
+ 
+
+      containers:
+
+      - name: fluent-bit
+
+        image: xxxx/ubs/ise/fluent-bit:v3.0.7
+
+        imagePullPolicy: IfNotPresent
+
+        args:
+
+        - -c
+
+        - /opt/fluent-bit/etc/fluent-bit/fluent-bit.conf
+
+        command:
+
+        - /opt/fluent-bit/bin/fluent-bit
+
+ 
+
+        ports:
+
+        - containerPort: 2020
+
+          protocol: TCP
+
+ 
+
+        volumeMounts:
+
+        - mountPath: /cache
+
+          name: templogs
+
+        - mountPath: /var/log
+
+          name: varlog
+
+        - mountPath: /opt/fluent-bit/etc/fluent-bit/
+
+          name: fluent-bit-etc
+
+        - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
+
+          name: namespace-config
+
+        securityContext:
+
+          capabilities:
+
+            drop:
+
+              - ALL
+
+            add:
+
+              - CAP_FOWNER
+
+ 
+
+        resources:
+
+          limits:
+
+            cpu: 800m
+
+            memory: 4Gi
+
+          requests:
+
+            cpu: 200m
+
+            memory: 4Gi
+
+ 
+
+      - name: config-reloader
+
+        image: xxxx/ubs/ise/fluent-bit:v3.0.7
+
+        imagePullPolicy: IfNotPresent
+
+        args:
+
+        - -c
+
+        - source /opt/fluent-bit/scripts/reloader-loop.sh
+
+        command:
+
+        - /bin/bash
+
+        volumeMounts:
+
+        - mountPath: /opt/fluent-bit/scripts
+
+          name: fluent-bit-scripts
+
+        - mountPath: /opt/fluent-bit/etc/fluent-bit/
+
+          name: fluent-bit-etc
+
+        - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
+
+          name: namespace-config
+
+ 
+
+        resources:
+
+          limits:
+
+            cpu: 150m
+
+            memory: 128Mi
+
+          requests:
+
+            cpu: 50m
+
+            memory: 128Mi
+
+ 
+
+      securityContext:
+
+        seccompProfile:
+
+          type: RuntimeDefault
+
+ 
+
+      volumes:
+
+      - emptyDir: {}
+
+        name: templogs
+
+      - hostPath:
+
+          path: /var/log
+
+          type: ""
+
+        name: varlog
+
+      - configMap:
+
+          defaultMode: 440
+
+          name: log-collector-scripts
+
+        name: fluent-bit-scripts
+
+      - configMap:
+
+          defaultMode: 440
+
+          name: log-collector-config
+
+        name: fluent-bit-etc
+
+      - name: namespace-config
+
+        emptyDir: {}
+
+ 
+
+      tolerations:
+
+      - key: node-role.kubernetes.io/master
+
+        operator: Exists
+
+        effect: NoSchedule
+
+      - key: kubernetes.azure.com/scalesetpriority
+
+        operator: Equal
+
+        value: spot
+
+        effect: NoSchedule
+
+ 
+
+      priorityClassName: logging
+
+---
+
+# Source: logging/templates/tests/testdeployment.yaml
+
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: logging-ds
+
+  namespace: logging
+
+  annotations:
+
+    "helm.sh/hook": test
+
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+
+spec:
+
+  serviceAccountName: helmtest-sa  # Ensure it's set correctly
+
+  containers:
+
+    - name: kubectl
+
+      image: xxxx/ubs/ise/azp-agent-ubuntu:1.1.0
+
+      command: ['bash', '-c']
+
+      args:
+
+        - |
+
+          set -e
+
+          kubectl --namespace logging rollout status daemonset/log-collector
+
+          echo "Logging DaemonSet is ready"
+
+      securityContext:
+
+        readOnlyRootFilesystem: true
+
+        allowPrivilegeEscalation: false
+
+        capabilities:
+
+          drop:
+
+            - "ALL"
+
+        runAsNonRoot: true
+
+        runAsUser: 1001
+
+        runAsGroup: 1001
+
+        seccompProfile:
+
+          type: RuntimeDefault
+
+      resources:
+
+        limits:
+
+          cpu: 100m
+
+          memory: 128Mi
+
+        requests:
+
+          cpu: 50m
+
+          memory: 128Mi
+
+  restartPolicy: Never
+
+---
+
+# Source: logging/templates/tests/testdeployment.yaml
+
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: logging-crd
+
+  namespace: logging
+
+  annotations:
+
+    "helm.sh/hook": test
+
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+
+spec:
+
+  serviceAccountName: helmtest-sa  # Ensure it's set correctly
+
+  containers:
+
+    - name: kubectl
+
+      image: xxxx/ubs/ise/azp-agent-ubuntu:1.1.0
+
+      command: ['bash', '-c']
+
+      args:
+
+        - |
+
+          set -e
+
+          kubectl get crd loggingendpoints.uk8s.xxxx
+
+          echo "CRD is available"
+
+      securityContext:
+
+        readOnlyRootFilesystem: true
+
+        allowPrivilegeEscalation: false
+
+        capabilities:
+
+          drop:
+
+            - "ALL"
+
+        runAsNonRoot: true
+
+        runAsUser: 1001
+
+        runAsGroup: 1001
+
+        seccompProfile:
+
+          type: RuntimeDefault
+
+      resources:
+
+        limits:
+
+          cpu: 100m
+
+          memory: 128Mi
+
+        requests:
+
+          cpu: 50m
+
+          memory: 128Mi
+
+  restartPolicy: Never
+
+---
+
+# Source: logging/templates/tests/testdeployment.yaml
+
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: logging-cm
+
+  namespace: logging
+
+  annotations:
+
+    "helm.sh/hook": test
+
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+
+spec:
+
+  serviceAccountName: helmtest-sa  # Ensure it's set correctly
+
+  containers:
+
+    - name: kubectl
+
+      image: xxxx/ubs/ise/azp-agent-ubuntu:1.1.0
+
+      command: ['bash', '-c']
+
+      args:
+
+        - |
+
+          set -e
+
+          kubectl --namespace logging get configmap log-collector-config
+
+          echo "log-collector-config configmap is available"
+
+          kubectl --namespace logging get configmaps log-collector-config -o yaml | grep -E "[[:space:]]*Path[[:space:]]*/var/log/containers/\*\.log"
+
+          echo "log-collector-config configmap has no filer applied"
+
+          kubectl --namespace logging get configmap log-collector-scripts
+
+          echo "log-collector-scripts configmap is available"
+
+      securityContext:
+
+        readOnlyRootFilesystem: true
+
+        allowPrivilegeEscalation: false
+
+        capabilities:
+
+          drop:
+
+            - "ALL"
+
+        runAsNonRoot: true
+
+        runAsUser: 1001
+
+        runAsGroup: 1001
+
+        seccompProfile:
+
+          type: RuntimeDefault
+
+      resources:
+
+        limits:
+
+          cpu: 100m
+
+          memory: 128Mi
+
+        requests:
+
+          cpu: 50m
+
+          memory: 128Mi
+
+  restartPolicy: Never
+
+---
+
+# Source: logging/templates/tests/testdeployment.yaml
+
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: logging-sa
+
+  namespace: logging
+
+  annotations:
+
+    "helm.sh/hook": test
+
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+
+spec:
+
+  serviceAccountName: helmtest-sa  # Ensure it's set correctly
+
+  containers:
+
+    - name: kubectl
+
+      image: xxxx/ubs/ise/azp-agent-ubuntu:1.1.0
+
+      command: ['bash', '-c']
+
+      args:
+
+        - |
+
+          set -e
+
+          kubectl --namespace logging get serviceaccount logging
+
+          echo "logging service account is available"
+
+      securityContext:
+
+        readOnlyRootFilesystem: true
+
+        allowPrivilegeEscalation: false
+
+        capabilities:
+
+          drop:
+
+            - "ALL"
+
+        runAsNonRoot: true
+
+        runAsUser: 1001
+
+        runAsGroup: 1001
+
+        seccompProfile:
+
+          type: RuntimeDefault
+
+      resources:
+
+        limits:
+
+          cpu: 100m
+
+          memory: 128Mi
+
+        requests:
+
+          cpu: 50m
+
+          memory: 128Mi
+
+  restartPolicy: Never
+
+ 
