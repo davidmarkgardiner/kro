@@ -1,27 +1,12 @@
-apiVersion: resources.azure.com/v1beta1
-kind: Instance
+apiVersion: kro.run/v1alpha1
+kind: StorageConfig
 metadata:
-  name: storage-instance
-  namespace: storage
+  name: storage
+  namespace: kro
 spec:
-  resourceGroup: storage-rg
-  template:
-    apiVersion: '2021-04-01'
-    type: Microsoft.Storage/storageAccounts
-    name: storage-instance
-    location: westeurope
-    sku:
-      name: Standard_LRS
-      tier: Standard
-    kind: StorageV2
-    properties:
-      accessTier: Hot
-      enableHttpsTrafficOnly: true
-      minimumTlsVersion: TLS1_2
-      networkAcls:
-        defaultAction: Allow
-      fileShares:
-        - name: app
-          enabledProtocols: SMB
-          shareQuota: 5120 # 5TB in GB
-      supportsHttpsTrafficOnly: true 
+  name: test-storage
+  namespace: kro
+  storageAccount: krostorage
+  secretName: storage-secret
+  shareName: testshare
+  storageSize: "10Gi" 

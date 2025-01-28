@@ -9,6 +9,7 @@ spec:
     kind: StorageConfig
     spec:
       name: string | required=true description="Name of the storage configuration"
+      namespace: string | required=true description="Target namespace for the storage resources"
       storageAccount: string | required=true description="Azure storage account name"
       secretName: string | required=true description="Name of the secret containing storage credentials"
       shareName: string | default="app" description="Name of the file share"
@@ -42,9 +43,9 @@ spec:
           skuName: Standard_LRS
           storageAccount: ${schema.spec.storageAccount}
           csi.storage.k8s.io/provisioner-secret-name: ${schema.spec.secretName}
-          csi.storage.k8s.io/provisioner-secret-namespace: ${metadata.namespace}
+          csi.storage.k8s.io/provisioner-secret-namespace: ${schema.spec.namespace}
           csi.storage.k8s.io/node-stage-secret-name: ${schema.spec.secretName}
-          csi.storage.k8s.io/node-stage-secret-namespace: ${metadata.namespace}
+          csi.storage.k8s.io/node-stage-secret-namespace: ${schema.spec.namespace}
 
     - id: persistentvolume
       template:
@@ -52,7 +53,7 @@ spec:
         kind: PersistentVolume
         metadata:
           name: ${schema.spec.name}-pv
-          namespace: ${metadata.namespace}
+          namespace: ${schema.spec.namespace}
         spec:
           capacity:
             storage: ${schema.spec.storageSize}
@@ -71,7 +72,7 @@ spec:
         kind: PersistentVolumeClaim
         metadata:
           name: ${schema.spec.name}-pvc
-          namespace: ${metadata.namespace}
+          namespace: ${schema.spec.namespace}
         spec:
           accessModes:
             - ${schema.spec.accessMode}

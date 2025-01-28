@@ -32,27 +32,22 @@ spec:
         spec:
           gatewayClassName: istio
           addresses:
-          - value: aks-istio-ingressgateway-internal.
-            type: Hostname
+            - value: aks-istio-ingressgateway-internal.
+              type: Hostname
           listeners:
-          - name: private-zone
-            hostname: ${schema.spec.hostname}
-            protocol: ${schema.spec.protocol}
-            port: ${schema.spec.port}
-            allowedRoutes:
-              namespaces:
-                from: All
-            tls:
-              certificateRefs:
-                - group: ""
-                  kind: Secret
-                  name: ${schema.spec.tlsSecretName}
-                  namespace: ${schema.spec.tlsSecretNamespace}
-              mode: Terminate
-              options:
-                cipherSuites:
-                - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-                - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-                - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-                - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-                minProtocolVersion: TLSV1_2 
+            - name: private-zone
+              hostname: ${schema.spec.hostname}
+              protocol: ${schema.spec.protocol}
+              port: ${schema.spec.port}
+              allowedRoutes:
+                namespaces:
+                  from: All
+              tls:
+                certificateRefs:
+                  - group: ""
+                    kind: Secret
+                    name: ${schema.spec.tlsSecretName}
+                    namespace: ${schema.spec.tlsSecretNamespace}
+                mode: Terminate
+                options:
+                  minProtocolVersion: TLSV1_2 
