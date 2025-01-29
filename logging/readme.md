@@ -1,3 +1,4 @@
+```
 kro/logging on  main [?] via 💎 v3.0.0 on ☁️  (eu-west-1) on ☁️  davidmarkgardiner@gmail.com 
 ❯ k get clusterrole | grep logging
 cluster-logging                                                        2025-01-28T17:22:49Z
@@ -24,3 +25,4 @@ kube-root-ca.crt        1      6m57s
 log-collector-config    6      3m42s
 log-collector-scripts   2      3m39s
 (base) 
+```
