@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: script-configmap
+  namespace: default
+data:
+  # Configuration values
+  database_url: "postgresql://db.example.com:5432"
+  api_endpoint: "https://api.example.com"
+  max_connections: "100"
+  
+  # Shell script
+  startup-script.sh: |
+    #!/bin/bash
+    
+    # Example startup script
+    echo "Starting application initialization..."
+    
+    # Set environment variables
+    export DB_URL="${DATABASE_URL:-postgresql://db.example.com:5432}"
+    export API_ENDPOINT="${API_ENDPOINT:-https://api.example.com}"
+    
+    # Create necessary directories
+    mkdir -p /app/data
+    mkdir -p /app/logs
+    
+    # Check system requirements
+    echo "Checking system requirements..."
+    MEMORY_AVAILABLE=$(free -m | awk '/Mem:/ {print $2}')
+    if [ "${MEMORY_AVAILABLE}" -lt 1024 ]; then
+      echo "Warning: Less than 1GB of RAM available"
+    fi
+    
+    # Initialize application
+    echo "Running application setup..."
+    for i in {1..3}; do
+      echo "Setup step $i..."
+      sleep 1
+    done
+    
+    # Start monitoring
+    echo "Starting monitoring process..."
+    while true; do
+      echo "Healthcheck: $(date)"
+      sleep 300
+    done
+  
+  # Python script
+  process-data.py: |
+    #!/usr/bin/env python3
+    
+    import os
+    import time
+    import json
+    
+    def main():
+        print("Starting data processing...")
+        
+        # Configuration
+        config = {
+            "input_dir": "/app/data/input",
+            "output_dir": "/app/data/output",
+            "max_batch_size": 1000
+        }
+        
+        # Simulated processing
+        def process_batch(batch_id):
+            print(f"Processing batch {batch_id}")
+            time.sleep(1)
+            return {"processed": True, "batch_id": batch_id}
+        
+        # Main processing loop
+        for i in range(5):
+            result = process_batch(i)
+            print(json.dumps(result))
+        
+        print("Processing complete!")
+
+    if __name__ == "__main__":
+        main()

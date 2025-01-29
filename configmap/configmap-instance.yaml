@@ -1,0 +1,10 @@
+apiVersion: kro.run/v1alpha1
+kind: ConfigMapTest
+metadata:
+  name: test-configmap
+spec:
+  name: script-configmap
+  namespace: default
+  database_url: "postgresql://db.example.com:5432"
+  api_endpoint: "https://api.example.com"
+  max_connections: "100" 
