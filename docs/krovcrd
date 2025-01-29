@@ -1,0 +1,56 @@
+Let me help explain the key benefits of kro compared to regular CRDs and how it handles changes to resources.
+
+Let me first search through the codebase to understand how kro handles resource changes and its controller behavior.
+
+Search files...
+
+
+Based on the search results, I can explain the key differences between kro and traditional CRDs, particularly regarding how they handle resource changes:
+
+1. **Continuous Reconciliation vs One-time Application**
+- kro actively monitors and reconciles resources continuously, not just when initially applied
+- It uses a standard Kubernetes reconciliation pattern that:
+  - Observes changes to instances and their resources
+  - Compares current state with desired state
+  - Takes action to create, update, or delete resources as needed
+  - Reports status updates in real-time
+
+2. **Resource Dependencies and Relationships**
+- Unlike basic CRDs, kro manages complex relationships between resources:
+  - Automatically determines the correct order of operations
+  - Handles dependencies between resources
+  - Ensures resources are created and updated in the right sequence
+  - Maintains references and value passing between resources
+
+3. **Status and Health Monitoring**
+- kro provides rich status information:
+  - High-level instance state (Running, Progressing, Failed, Terminating)
+  - Detailed condition tracking (Ready, Progressing, Degraded, Error)
+  - Automatic status updates from underlying resources
+  - Self-healing capabilities
+
+4. **Resource Group Management**
+- Instead of managing individual CRDs, kro allows you to:
+  - Define and manage multiple resources as a single unit
+  - Create reusable templates for complex applications
+  - Apply consistent configurations across resources
+  - Handle the complete lifecycle of all related resources together
+
+5. **Dynamic Updates and Validation**
+- When changes are made to a kro instance:
+  - The controller automatically detects changes
+  - Validates the new configuration
+  - Updates all affected resources while maintaining dependencies
+  - Ensures the entire resource group stays in sync
+
+6. **Schema and API Management**
+- kro provides:
+  - Simplified schema definition
+  - Automatic CRD generation
+  - Built-in validation
+  - Default value handling
+  - Status field updates based on CEL expressions
+
+So to directly answer your question: Yes, kro will react when someone amends the custom resource. It maintains an active reconciliation loop that continuously monitors the state of your resources and makes necessary adjustments to maintain the desired state. This is different from basic CRDs where you might need to implement this reconciliation logic yourself.
+
+The key advantage is that kro handles all this complexity for you, making it easier to manage groups of related resources while maintaining their relationships and desired state over time, not just at creation.
