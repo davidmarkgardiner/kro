@@ -182,7 +182,7 @@ spec:
           name: log-collector-scripts
           namespace: logging
         data:
-          reloader-loop.sh: |-
+          reloader-loop.sh: |
             #!/bin/bash
 
             BINPATH=/opt/fluent-bit/bin/fluent-bit
@@ -195,12 +195,16 @@ spec:
               /bin/rm $NAMESPACESDIR/*
               touch $NAMESPACESDIR/empty.conf
 
+              # Get the secret values
+              WORKSPACE_ID=$(cat /etc/law-credentials/workspaceId)
+              TOKEN=$(cat /etc/law-credentials/token)
+
               curl --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /run/secrets/kubernetes.io/serviceaccount/token)" -X GET https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/uk8s.xxxx/v1/loggingendpoints | jq -r  '[.items[]|{namespace: .metadata.namespace, name: .metadata.name} * .spec.law] | .[]|[.namespace, .name, .table, .workspaceId, .token] | join(" ")' > $NAMESPACESDIR/loggingendpoints
 
               cat $NAMESPACESDIR/loggingendpoints | while read namespace ep table workspace token ; do
                 echo ----------------------------------------
                 echo Testing configuration for $namespace-$ep
-                workspace=$workspace token=$token table=$table namespace=$namespace ep=$ep $BINPATH -c $CONFIGDIR/lawtest.conf
+                workspace=$WORKSPACE_ID token=$TOKEN table=$table namespace=$namespace ep=$ep $BINPATH -c $CONFIGDIR/lawtest.conf
                 if [ $? -ne "0" ]; then
                   echo skipping $namespace-$ep
                   continue
@@ -209,8 +213,8 @@ spec:
             [OUTPUT]
                 Name            azure
                 Match           processed.law-endpoint.$namespace.$ep.*
-                Customer_ID     $workspace
-                Shared_Key      $token
+                Customer_ID     $WORKSPACE_ID
+                Shared_Key      $TOKEN
                 Log_Type        $table
             EOF
               done
@@ -353,6 +357,9 @@ spec:
                       name: fluent-bit-etc
                     - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
                       name: namespace-config
+                    - name: law-credentials
+                      mountPath: /etc/law-credentials
+                      readOnly: true
                   securityContext:
                     capabilities:
                       drop:
@@ -381,6 +388,9 @@ spec:
                       name: fluent-bit-etc
                     - mountPath: /opt/fluent-bit/etc/fluent-bit/namespaces/
                       name: namespace-config
+                    - name: law-credentials
+                      mountPath: /etc/law-credentials
+                      readOnly: true
                   resources:
                     limits:
                       cpu: 150m
@@ -408,6 +418,9 @@ spec:
                   name: fluent-bit-etc
                 - name: namespace-config
                   emptyDir: {}
+                - name: law-credentials
+                  secret:
+                    secretName: logging-law-credentials
               tolerations:
                 - key: node-role.kubernetes.io/master
                   operator: Exists
@@ -416,4 +429,16 @@ spec:
                   operator: Equal
                   value: spot
                   effect: NoSchedule
-              priorityClassName: logging 
+              priorityClassName: logging
+
+    - id: lawSecret
+      template:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: logging-law-credentials
+          namespace: logging
+        type: Opaque
+        stringData:
+          workspaceId: "{{ law.workspace_id }}"
+          token: "{{ law.token }}"

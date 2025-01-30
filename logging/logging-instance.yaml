@@ -7,6 +7,7 @@ spec:
   name: logging-collector
   endpointType: law
   law:
-    workspaceId: asdf
-    token: asdf
+    workspaceId: "your-workspace-id"  # Replace with actual workspace ID
+    token: "your-token"               # Replace with actual token
     table: mylawtable
+    
