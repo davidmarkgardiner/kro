@@ -1,0 +1,60 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: storageconfigs.kro.run
+spec:
+  group: kro.run
+  names:
+    kind: StorageConfig
+    listKind: StorageConfigList
+    plural: storageconfigs
+    singular: storageconfig
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              required: ["name", "namespace", "storageAccount", "secretName"]
+              properties:
+                name:
+                  type: string
+                  description: "Name of the storage configuration"
+                namespace:
+                  type: string
+                  description: "Target namespace for the storage resources"
+                storageAccount:
+                  type: string
+                  description: "Azure storage account name"
+                secretName:
+                  type: string
+                  description: "Name of the secret containing storage credentials"
+                shareName:
+                  type: string
+                  description: "Name of the file share"
+                  default: "app"
+                storageSize:
+                  type: string
+                  description: "Size of the storage"
+                  default: "5Ti"
+                accessMode:
+                  type: string
+                  description: "Storage access mode"
+                  default: "ReadWriteMany"
+            status:
+              type: object
+              properties:
+                storageClassName:
+                  type: string
+                persistentVolumeName:
+                  type: string
+                claimName:
+                  type: string
+      subresources:
+        status: {} 
