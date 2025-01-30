@@ -1,0 +1,245 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: eva
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: EVA
+    spec:
+      vault_url: string | required=true description="Vault URL"
+      swci: string | required=true description="SWCI identifier"
+      user_assigned_identity_name: string | required=true description="User assigned identity name"
+      service_principle_eva_key: string | required=true description="Service principle EVA key"
+      service_account_name: string | required=true description="Service account name"
+      user_assigned_identity_client_id: string | required=true description="User assigned identity client ID"
+      user_assigned_identity_tenant_id: string | required=true description="User assigned identity tenant ID"
+    status:
+      ready: ${secretstore.metadata.name != ""}
+
+  resources:
+    - id: secretstore
+      template:
+        apiVersion: external-secrets.io/v1beta1
+        kind: SecretStore
+        metadata:
+          name: eva-secretstore
+        spec:
+          provider:
+            vault:
+              server: https://${schema.spec.vault_url}
+              namespace: ${schema.spec.swci}
+              path: secret
+              caProvider:
+                type: Secret
+                name: gp-auth
+                key: ca.crt
+              auth:
+                jwt:
+                  path: azure
+                  role: ${schema.spec.user_assigned_identity_name}
+                  secretRef:
+                    name: eva-jwt
+                    key: jwt
+
+    - id: externalsecret
+      template:
+        apiVersion: external-secrets.io/v1beta1
+        kind: ExternalSecret
+        metadata:
+          name: sp-externalsecret
+          annotations:
+            helm.sh/hook: post-install,post-upgrade
+        spec:
+          refreshInterval: 10m
+          secretStoreRef:
+            kind: SecretStore
+            name: eva-secretstore
+          target:
+            name: sp-secrets
+            creationPolicy: Owner
+          data:
+            - secretKey: sp-client-id
+              remoteRef:
+                key: ${schema.spec.service_principle_eva_key}
+                property: client-id
+                decodingStrategy: None
+            - secretKey: sp-client-secret
+              remoteRef:
+                key: ${schema.spec.service_principle_eva_key}
+                property: secret
+                decodingStrategy: None
+
+    - id: firstjob
+      template:
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: eva-firstjob
+        spec:
+          ttlSecondsAfterFinished: 10
+          template:
+            metadata:
+              name: eva-firstjob
+              labels:
+                "azure.workload.identity/use": "true"
+              annotations:
+                "sidecar.istio.io/inject": "false"
+            spec:
+              serviceAccountName: ${schema.spec.service_account_name}
+              volumes:
+                - name: eva-volume
+                  emptyDir: {}
+              initContainers:
+                - name: eva-firstcurl-container
+                  image: "container-registry.xxx1/curl:7.85.0"
+                  command:
+                    - bin/sh
+                    - -c
+                    - EVA_TOKEN=$(curl -X POST -H "Content-Type:application/x-www-form-urlencoded" --data "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_id=${schema.spec.user_assigned_identity_client_id}&grant_type=client_credentials&scope=api://${schema.spec.vault_url}/.default&client_assertion=$(cat $AZURE_FEDERATED_TOKEN_FILE)" https://login.microsoftonline.com/${schema.spec.user_assigned_identity_tenant_id}/oauth2/v2.0/token); touch /EVA/eva-token.txt; echo $EVA_TOKEN >> /EVA/eva-token.json
+                  volumeMounts:
+                    - mountPath: "/EVA"
+                      name: "eva-volume"
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    runAsNonRoot: true
+                    runAsUser: 100
+                    seccompProfile:
+                      type: "RuntimeDefault"
+                  resources:
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+                    requests:
+                      cpu: 100m
+                      memory: 128Mi
+              containers:
+                - name: eva-firstjob-container
+                  image: "container-registry.xxx1/bitnami/kubectl:1.32.0"
+                  command: [ bin/bash ]
+                  args:
+                    - -c
+                    - EVAjwt=$(jq -r '.access_token' /EVA/eva-token.json);kubectl delete secret eva-jwt --ignore-not-found;kubectl create secret generic eva-jwt --from-literal=jwt=$EVAjwt
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    runAsNonRoot: true
+                    seccompProfile:
+                      type: RuntimeDefault
+                  resources:
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+                    requests:
+                      cpu: 100m
+                      memory: 128Mi
+                  volumeMounts:
+                    - mountPath: /EVA
+                      name: eva-volume
+              restartPolicy: OnFailure
+
+    - id: cronjob
+      template:
+        apiVersion: batch/v1
+        kind: CronJob
+        metadata:
+          name: eva-cronjob
+        spec:
+          concurrencyPolicy: "Forbid"
+          schedule: "0 */8 * * *"
+          successfulJobsHistoryLimit: 1
+          failedJobsHistoryLimit: 1
+          jobTemplate:
+            metadata:
+              name: eva-job
+            spec:
+              ttlSecondsAfterFinished: 600
+              template:
+                metadata:
+                  name: eva-job
+                  labels:
+                    "azure.workload.identity/use": "true"
+                  annotations:
+                    "sidecar.istio.io/inject": "false"
+                spec:
+                  serviceAccountName: ${schema.spec.service_account_name}
+                  volumes:
+                    - name: eva-volume
+                      emptyDir: {}
+                  initContainers:
+                    - name: eva-curl-container
+                      image: "container-registry.xxx1/curl:7.85.0"
+                      command:
+                        - bin/sh
+                        - -c
+                        - EVA_TOKEN=$(curl -X POST -H "Content-Type:application/x-www-form-urlencoded" --data "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_id=${schema.spec.user_assigned_identity_client_id}&grant_type=client_credentials&scope=api://${schema.spec.vault_url}/.default&client_assertion=$(cat $AZURE_FEDERATED_TOKEN_FILE)" https://login.microsoftonline.com/${schema.spec.user_assigned_identity_tenant_id}/oauth2/v2.0/token); touch /EVA/eva-token.txt; echo $EVA_TOKEN >> /EVA/eva-token.json
+                      volumeMounts:
+                        - mountPath: "/EVA"
+                          name: "eva-volume"
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        readOnlyRootFilesystem: true
+                        runAsNonRoot: true
+                        runAsUser: 100
+                        seccompProfile:
+                          type: "RuntimeDefault"
+                      resources:
+                        limits:
+                          cpu: 100m
+                          memory: 128Mi
+                        requests:
+                          cpu: 100m
+                          memory: 128Mi
+                  containers:
+                    - name: eva-job-container
+                      image: "container-registry.xxx1/bitnami/kubectl:1.32.0"
+                      command: [ bin/bash ]
+                      args:
+                        - -c
+                        - EVAjwt=$(jq -r '.access_token' /EVA/eva-token.json);kubectl delete secret eva-jwt --ignore-not-found;kubectl create secret generic eva-jwt --from-literal=jwt=$EVAjwt
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        readOnlyRootFilesystem: true
+                        runAsNonRoot: true
+                        seccompProfile:
+                          type: RuntimeDefault
+                      resources:
+                        limits:
+                          cpu: 100m
+                          memory: 128Mi
+                        requests:
+                          cpu: 100m
+                          memory: 128Mi
+                      volumeMounts:
+                        - mountPath: /EVA
+                          name: eva-volume
+                  restartPolicy: OnFailure
+
+    - id: role
+      template:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: gpinfra-role
+        rules:
+          - apiGroups: ["*"]
+            resources: [cronjobs, jobs]
+            verbs: [get, create, delete]
+          - apiGroups: ['*']
+            resources: [secrets]
+            verbs: [create, delete]
+
+    - id: rolebinding
+      template:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        metadata:
+          name: gpinfra-role-binding
+        roleRef:
+          kind: Role
+          apiGroup: rbac.authorization.k8s.io
+          name: gpinfra-role
+        subjects:
+          - kind: ServiceAccount
+            name: ${schema.spec.service_account_name} 

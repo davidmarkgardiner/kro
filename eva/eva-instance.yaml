@@ -1,0 +1,14 @@
+apiVersion: kro.run/v1alpha1
+kind: EVA
+metadata:
+  name: eva
+  # namespace: eva
+spec:
+  # name: eva-auth
+  vault_url: "vault.example.com"
+  swci: "swci-123"
+  user_assigned_identity_name: "eva-identity"
+  service_principle_eva_key: "eva/service-principle"
+  service_account_name: "eva-service-account"
+  user_assigned_identity_client_id: "12345678-1234-1234-1234-123456789012"
+  user_assigned_identity_tenant_id: "87654321-4321-4321-4321-210987654321" 

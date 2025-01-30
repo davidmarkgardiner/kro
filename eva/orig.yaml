@@ -1,0 +1,471 @@
+apiVersion: external-secrets.io/v1beta1
+
+kind: SecretStore
+
+metadata:
+
+  name: {{ printf "%s-eva-secretstore" .Values.xxx2.xxx2_flux_config_name }}
+
+  namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+spec:
+
+  provider:
+
+    vault:
+
+      server: {{ printf "https://%s"  .Values.secret.vault_url }}
+
+      namespace: {{ .Values.metadata.swci }}
+
+      path: secret
+
+      caProvider:
+
+        type: Secret
+
+        name: gp-auth
+
+        key: ca.crt
+
+      auth:
+
+        jwt:
+
+          path: azure
+
+          role: {{ .Values.identity.user_assigned_identity_name }}
+
+          secretRef:
+
+            name: {{ printf "%s-eva-jwt" .Values.xxx2.xxx2_flux_config_name }}
+
+            key: jwt
+
+---
+
+apiVersion: external-secrets.io/v1beta1
+
+kind: ExternalSecret
+
+metadata:
+
+  name: {{ printf "%s-sp-externalsecret" .Values.xxx2.xxx2_flux_config_name }}
+
+  namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+annotations:
+
+  "helm.sh/hook": post-install,post-upgrade
+
+spec:
+
+  refreshInterval: 10m
+
+  secretStoreRef:
+
+    kind: SecretStore
+
+    name: {{ printf "%s-eva-secretstore" .Values.xxx2.xxx2_flux_config_name }}
+
+  target:
+
+    name: sp-secrets
+
+    creationPolicy: Owner
+
+  data:
+
+    - secretKey: sp-client-id
+
+      remoteRef:
+
+        key: {{ .Values.service_principle.service_principle_eva_key }}
+
+        property: client-id
+
+        decodingStrategy: None
+
+    - secretKey: sp-client-secret
+
+      remoteRef:
+
+        key: {{ .Values.service_principle.service_principle_eva_key }}
+
+        property: secret
+
+        decodingStrategy: None
+
+---
+
+apiVersion:  batch/v1
+
+kind:  Job
+
+metadata:
+
+  name: {{ printf "%s-eva-firstjob" .Values.xxx2.xxx2_flux_config_name }}
+
+  namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+spec:
+
+  ttlSecondsAfterFinished: 10
+
+  template:
+
+    metadata:
+
+      name: {{ printf "%s-eva-firstjob" .Values.xxx2.xxx2_flux_config_name }}
+
+      labels:
+
+        "azure.workload.identity/use":  "true"
+
+      annotations:
+
+        "sidecar.istio.io/inject":  "false"
+
+    spec:
+
+      serviceAccountName: {{ .Values.identity.service_account_name }}
+
+      volumes:
+
+      - name: eva-volume
+
+        emptyDir: {}
+
+      initContainers:
+
+      - name: {{ printf "%s-eva-firstcurl-container" .Values.xxx2.xxx2_flux_config_name }}
+
+        image: "container-registry.xxx1/curl:7.85.0"
+
+        command:
+
+          - bin/sh
+
+          - -c
+
+          - {{ printf (cat
+
+            "EVA_TOKEN=$(curl -X POST"
+
+            "-H \"Content-Type:application/x-www-form-urlencoded\""
+
+            "--data \"client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_id=%s&grant_type=client_credentials&scope=api://%s/.default&client_assertion=$(cat $AZURE_FEDERATED_TOKEN_FILE)\""
+
+            "https://login.microsoftonline.com/%s/oauth2/v2.0/token);"
+
+            "touch /EVA/eva-token.txt;"
+
+            "echo $EVA_TOKEN >> /EVA/eva-token.json") .Values.identity.user_assigned_identity_client_id .Values.secret.vault_url .Values.identity.user_assigned_identity_tenant_id }}
+
+        volumeMounts:
+
+        - mountPath: "/EVA"
+
+          name: "eva-volume"
+
+        securityContext:
+
+          allowPrivilegeEscalation: false
+
+          readOnlyRootFilesystem: true
+
+          runAsNonRoot: true
+
+          runAsUser: 100
+
+          seccompProfile:
+
+            type: "RuntimeDefault"
+
+        resources:
+
+          limits:
+
+            cpu: 100m
+
+            memory: 128Mi
+
+          requests:
+
+            cpu: 100m
+
+            memory: 128Mi
+
+      containers:
+
+      - name: {{ printf "%s-eva-firstjob-container" .Values.xxx2.xxx2_flux_config_name }}
+
+        image: "container-registry.xxx1/bitnami/kubectl:1.32.0"
+
+        command: [ bin/bash ]
+
+        args:
+
+          - -c
+
+          - {{ printf "EVAjwt=$(jq -r '.access_token' /EVA/eva-token.json);kubectl delete secret %s --ignore-not-found;kubectl create secret generic %s --from-literal=jwt=$EVAjwt" (printf "%s-eva-jwt" .Values.xxx2.xxx2_flux_config_name)  (printf "%s-eva-jwt" .Values.xxx2.xxx2_flux_config_name)  }}
+
+        securityContext:
+
+          allowPrivilegeEscalation: false
+
+          readOnlyRootFilesystem: true
+
+          runAsNonRoot: true
+
+          seccompProfile:
+
+            type: RuntimeDefault
+
+        resources:
+
+          limits:
+
+            cpu: 100m
+
+            memory: 128Mi
+
+          requests:
+
+            cpu: 100m
+
+            memory: 128Mi
+
+        volumeMounts:
+
+        - mountPath: /EVA
+
+          name: eva-volume
+
+      restartPolicy: OnFailure
+
+---
+
+apiVersion:  batch/v1
+
+kind:  CronJob
+
+metadata:
+
+  name:  {{ printf "%s-eva-cronjob" .Values.xxx2.xxx2_flux_config_name }}
+
+  namespace:  {{ .Values.xxx2.xxx2_namespace }}
+
+spec:
+
+  concurrencyPolicy: "Forbid"
+
+  schedule: "0 */8 * * *"
+
+  successfulJobsHistoryLimit: 1
+
+  failedJobsHistoryLimit: 1
+
+  jobTemplate:
+
+    metadata:
+
+      name: {{ printf "%s-eva-job" .Values.xxx2.xxx2_flux_config_name }}
+
+      namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+    spec:
+
+      ttlSecondsAfterFinished: 600
+
+      template:
+
+        metadata:
+
+          name: {{ printf "%s-eva-job" .Values.xxx2.xxx2_flux_config_name }}
+
+          labels:
+
+            "azure.workload.identity/use":  "true"
+
+          annotations:
+
+            "sidecar.istio.io/inject":  "false"
+
+        spec:
+
+          serviceAccountName: {{ .Values.identity.service_account_name }}
+
+          volumes:
+
+          - name: eva-volume
+
+            emptyDir: {}
+
+          initContainers:
+
+          - name: {{ printf "%s-eva-curl-container" .Values.xxx2.xxx2_flux_config_name }}
+
+            image: "container-registry.xxx1/curl:7.85.0"
+
+            command:
+
+              - bin/sh
+
+              - -c
+
+              - {{ printf (cat
+
+                "EVA_TOKEN=$(curl -X POST"
+
+                "-H \"Content-Type:application/x-www-form-urlencoded\""
+
+                "--data \"client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_id=%s&grant_type=client_credentials&scope=api://%s/.default&client_assertion=$(cat $AZURE_FEDERATED_TOKEN_FILE)\""
+
+                "https://login.microsoftonline.com/%s/oauth2/v2.0/token);"
+
+                "touch /EVA/eva-token.txt;"
+
+                "echo $EVA_TOKEN >> /EVA/eva-token.json") .Values.identity.user_assigned_identity_client_id .Values.secret.vault_url .Values.identity.user_assigned_identity_tenant_id }}
+
+            volumeMounts:
+
+            - mountPath: "/EVA"
+
+              name: "eva-volume"
+
+            securityContext:
+
+              allowPrivilegeEscalation: false
+
+              readOnlyRootFilesystem: true
+
+              runAsNonRoot: true
+
+              runAsUser: 100
+
+              seccompProfile:
+
+                type: "RuntimeDefault"
+
+            resources:
+
+              limits:
+
+                cpu: 100m
+
+                memory: 128Mi
+
+              requests:
+
+                cpu: 100m
+
+                memory: 128Mi
+
+          containers:
+
+          - name: {{ printf "%s-eva-job-container" .Values.xxx2.xxx2_flux_config_name }}
+
+            image: "container-registry.xxx1/bitnami/kubectl:1.32.0"
+
+            command: [ bin/bash ]
+
+            args:
+
+              - -c
+
+              - {{ printf "EVAjwt=$(jq -r '.access_token' /EVA/eva-token.json);kubectl delete secret %s --ignore-not-found;kubectl create secret generic %s --from-literal=jwt=$EVAjwt" (printf "%s-eva-jwt" .Values.xxx2.xxx2_flux_config_name)  (printf "%s-eva-jwt" .Values.xxx2.xxx2_flux_config_name)  }}
+
+            securityContext:
+
+              allowPrivilegeEscalation: false
+
+              readOnlyRootFilesystem: true
+
+              runAsNonRoot: true
+
+              seccompProfile:
+
+                type: RuntimeDefault
+
+            resources:
+
+              limits:
+
+                cpu: 100m
+
+                memory: 128Mi
+
+              requests:
+
+                cpu: 100m
+
+                memory: 128Mi
+
+            volumeMounts:
+
+            - mountPath: /EVA
+
+              name: eva-volume
+
+          restartPolicy: OnFailure
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: Role
+
+metadata:
+
+  name: {{  printf "%s-gpinfra-role" .Values.xxx2.xxx2_flux_config_name }}
+
+  namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+rules:
+
+- apiGroups: ["*"]
+
+  resources: [cronjobs, jobs]
+
+  verbs: [get, create, delete]
+
+- apiGroups: ['*']
+
+  resources: [secrets]
+
+  verbs: [create, delete]
+
+ 
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: RoleBinding
+
+metadata:
+
+  name: {{ printf "%s-gpinfra-role-binding" .Values.xxx2.xxx2_flux_config_name }}
+
+  namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+roleRef:
+
+  kind: Role
+
+  apiGroups: rbac.authorization.k8s.io
+
+  name: {{ printf "%s-gpinfra-role" .Values.xxx2.xxx2_flux_config_name }}
+
+subjects:
+
+- kind: ServiceAccount
+
+  apiGroups: ""
+
+  name: {{ .Values.identity.service_account_name }}
+
+  namespace: {{ .Values.xxx2.xxx2_namespace }}
+
+---
