@@ -1,0 +1,24 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-resourcegroups
+spec:
+  validationFailureAction: enforce
+  background: false
+  rules:
+  - name: allow-resourcegroups-only-in-allowed-namespaces
+    match:
+      any:
+      - resources:
+          kinds:
+          - kro.run/v1alpha1/ResourceGroup
+    validate:
+      message: "ResourceGroups are only allowed in authorized namespaces (kro-system, platform-team)"
+      deny:
+        conditions:
+        - key: "{{request.namespace.metadata.name}}"
+          operator: NotIn
+          value: 
+          - "kro-system"
+          - "platform-team"
+          - "infra-team" 

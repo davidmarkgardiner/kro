@@ -8,5 +8,5 @@ spec:
   namespace: kro
   storageAccount: krostorage
   secretName: storage-secret
-  shareName: testshare
+  shareName: testshare,testsahre2,testshare3
   storageSize: "10Gi" 

@@ -1,0 +1,25 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: resourcegroup-validator
+webhooks:
+- name: resourcegroup.kro.run
+  rules:
+  - apiGroups: ["kro.run"]
+    apiVersions: ["v1alpha1"]
+    operations: ["CREATE"]
+    resources: ["resourcegroups"]
+    scope: "Namespaced"
+  clientConfig:
+    service:
+      namespace: kro-system
+      name: kro-webhook
+      path: "/validate-resourcegroup"
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: Fail
+  namespaceSelector:
+    matchExpressions:
+    - key: resourcegroup-restricted
+      operator: In
+      values: ["true"] 

@@ -1,0 +1,21 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-resourcegroups
+spec:
+  validationFailureAction: enforce
+  background: false
+  rules:
+  - name: allow-resourcegroups-only-in-allowed-namespaces
+    match:
+      any:
+      - resources:
+          kinds:
+          - kro.run/v1alpha1/ResourceGroup
+    validate:
+      message: "ResourceGroups are only allowed in namespaces with label 'resourcegroup-allowed: true'"
+      deny:
+        conditions:
+        - key: "{{request.namespace.metadata.labels.resourcegroup-allowed}}"
+          operator: NotEquals
+          value: "true" 

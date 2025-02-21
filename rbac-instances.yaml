@@ -1,0 +1,21 @@
+# Allow viewing WebApplication instances
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: webapplication-viewer
+  namespace: default
+rules:
+- apiGroups: ["kro.run"]
+  resources: ["webapplications"]
+  verbs: ["get", "list", "watch"]
+---
+# Allow managing WebApplication instances
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: webapplication-admin
+  namespace: default
+rules:
+- apiGroups: ["kro.run"]
+  resources: ["webapplications"]
+  verbs: ["*"] 

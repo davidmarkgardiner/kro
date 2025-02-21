@@ -1,0 +1,19 @@
+# Allow viewing ResourceGroups
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kro-viewer
+rules:
+- apiGroups: ["kro.run"]
+  resources: ["resourcegroups"]
+  verbs: ["get", "list", "watch"]
+---
+# Allow full management of ResourceGroups
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kro-admin
+rules:
+- apiGroups: ["kro.run"]
+  resources: ["resourcegroups"]
+  verbs: ["*"] 

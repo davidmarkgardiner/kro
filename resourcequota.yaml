@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: block-resourcegroups
+  namespace: restricted-namespace
+spec:
+  hard:
+    kro.run/resourcegroups: "0" 
